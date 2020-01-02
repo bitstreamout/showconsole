@@ -36,7 +36,7 @@ ifeq ($(BLOGGER),1)
 	 CFLAGS += -DBLOGGER
 endif
 	SEDOPTS = s|@@BOOT_LOGFILE@@|$(BOOT_LOGFILE)|;s|@@BOOT_OLDLOGFILE@@|$(BOOT_OLDLOGFILE)|
-	     CC = gcc -g3
+	     CC ?= gcc -g3
 	     RM = rm -f
 	  MKDIR = mkdir -p
 	  RMDIR = rm -rf
@@ -49,8 +49,8 @@ endif
    INSTSCRFLAGS = -c -m 0755
 	INSTSCR = install $(INSTSCRFLAGS)
 	   LINK = ln -sf
-	     AR = ar
-	     LD = ld -shared -O2
+	     AR ?= ar
+	     LD ?= ld -shared -O2
 	    SED = sed -r
 	     SO = echo .so man8/
 
