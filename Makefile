@@ -55,15 +55,16 @@ endif
 	     SO = echo .so man8/
 
 #
-	MANPATH = /usr/share/man
+	 PREFIX ?= /
+	MANPATH = $(PREFIX)usr/share/man
 	SDOCDIR = $(MANPATH)/man8
-	SBINDIR = /sbin
-	CONFDIR = /etc
-	 LSBDIR = /usr/lib/lsb
-	 LIBDIR = /usr/lib
-	 INCDIR = /usr/include
-      DRACUTMOD = /usr/lib/dracut/modules.d/99blog
-      SYSDUNITS = /usr/lib/systemd/system
+	SBINDIR = $(PREFIX)sbin
+	CONFDIR = $(PREFIX)etc
+	 LSBDIR = $(PREFIX)usr/lib/lsb
+	 LIBDIR = $(PREFIX)usr/lib
+	 INCDIR = $(PREFIX)usr/include
+      DRACUTMOD = $(PREFIX)usr/lib/dracut/modules.d/99blog
+      SYSDUNITS = $(PREFIX)usr/lib/systemd/system
 #
 #
 #
