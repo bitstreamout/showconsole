@@ -434,12 +434,13 @@ int main(int argc, char *argv[])
 	{
 	    const char *msg = "can not get terminal flags of stdin\n";
 	    int flags;
+	    int ret __attribute__ ((unused));
 
 	    if ((flags = fcntl(0, F_GETFL)) < 0)
 		list_for_each_entry(c, &cons->node, node) {
 		    if (c->fd < 0)
 			continue;
-		    (void)write(c->fd, msg, strlen(msg));
+		    ret = write(c->fd, msg, strlen(msg));
 		}
 	    else {
 		flags &= ~(O_NONBLOCK);
@@ -448,7 +449,7 @@ int main(int argc, char *argv[])
 		    list_for_each_entry(c, &cons->node, node) {
 			if (c->fd < 0)
 			    continue;
-			(void)write(c->fd, msg, strlen(msg));
+			ret = write(c->fd, msg, strlen(msg));
 		    }
 	    }
 	}
@@ -467,11 +468,12 @@ int main(int argc, char *argv[])
 	list_for_each_entry(c, &cons->node, node) {
 	    const char *msg = "blogd: can not fork to become daemon: ";
 	    const char *err = strerror(errno);
+	    int ret __attribute__ ((unused));
 	    if (c->fd < 0)
 		continue;
-	    (void)write(c->fd, msg, strlen(msg));
-	    (void)write(c->fd, err, strlen(err));
-	    (void)write(c->fd, "\n", 1);
+	    ret = write(c->fd, msg, strlen(msg));
+	    ret = write(c->fd, err, strlen(err));
+	    ret = write(c->fd, "\n", 1);
 	}
 	exit(EXIT_FAILURE);
     default:
@@ -491,8 +493,8 @@ int main(int argc, char *argv[])
 	fflush(stdout);
 
 	if (pipefd[0] > 0) {
-	    int dummy;
-	    read(pipefd[0], &dummy, 1);
+	    int dummy, ret __attribute__ ((unused));
+	    ret = read(pipefd[0], &dummy, 1);
 	    close(pipefd[0]);
 	}
 

@@ -41,7 +41,7 @@ static FILE *flog = NULL;
 /*
  * Signal control for writing on log file
  */
-volatile sig_atomic_t nsigsys;
+extern volatile sig_atomic_t nsigsys;
 
 /*
  * Our ring buffer
