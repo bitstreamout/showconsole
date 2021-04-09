@@ -36,7 +36,7 @@ ifeq ($(BLOGGER),1)
 	 CFLAGS += -DBLOGGER
 endif
 	SEDOPTS = s|@@BOOT_LOGFILE@@|$(BOOT_LOGFILE)|;s|@@BOOT_OLDLOGFILE@@|$(BOOT_OLDLOGFILE)|
-	     CC = gcc -g3
+	     CC ?= gcc -g3
 	     RM = rm -f
 	  MKDIR = mkdir -p
 	  RMDIR = rm -rf
@@ -49,21 +49,22 @@ endif
    INSTSCRFLAGS = -c -m 0755
 	INSTSCR = install $(INSTSCRFLAGS)
 	   LINK = ln -sf
-	     AR = ar
-	     LD = ld -shared -O2
+	     AR ?= ar
+	     LD ?= ld -shared -O2
 	    SED = sed -r
 	     SO = echo .so man8/
 
 #
-	MANPATH = /usr/share/man
+	 PREFIX ?= /
+	MANPATH = $(PREFIX)usr/share/man
 	SDOCDIR = $(MANPATH)/man8
-	SBINDIR = /sbin
-	CONFDIR = /etc
-	 LSBDIR = /usr/lib/lsb
-	 LIBDIR = /usr/lib
-	 INCDIR = /usr/include
-      DRACUTMOD = /usr/lib/dracut/modules.d/99blog
-      SYSDUNITS = /usr/lib/systemd/system
+	SBINDIR = $(PREFIX)sbin
+	CONFDIR = $(PREFIX)etc
+	 LSBDIR = $(PREFIX)usr/lib/lsb
+	 LIBDIR = $(PREFIX)usr/lib
+	 INCDIR = $(PREFIX)usr/include
+      DRACUTMOD = $(PREFIX)usr/lib/dracut/modules.d/99blog
+      SYSDUNITS = $(PREFIX)usr/lib/systemd/system
 #
 #
 #
