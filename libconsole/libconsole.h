@@ -181,6 +181,7 @@ extern void* shm_malloc(size_t size, int flags);
 /* signals.c */
 extern void set_signal(int sig, struct sigaction *old, sighandler_t handler);
 extern void reset_signal(int sig, struct sigaction *old);
+extern int restart_sig(int sig, int flag);
 
 /* socket.c */
 extern int open_un_socket_and_listen(void);

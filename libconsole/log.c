@@ -470,7 +470,8 @@ void dump_kmsg(FILE *log)
     do {
 	len = read(fd, buf, sizeof(buf)-1);
     } while (len < 0 && errno == EPIPE);
-    buf[len] = '\0';
+    if (len >= 0)
+	buf[len] = '\0';
 
     while (len > 0) {
 	char *p = &buf[0];
@@ -540,7 +541,8 @@ void dump_kmsg(FILE *log)
 	do {
 	    len = read(fd, buf, sizeof(buf)-1);
 	} while (len < 0 && errno == EPIPE);
-	buf[len] = '\0';
+	if (len >= 0)
+	    buf[len] = '\0';
     }
 
     close(fd);

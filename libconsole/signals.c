@@ -67,3 +67,26 @@ void reset_signal(int sig, struct sigaction *old)
 	} while (errno == EINTR);
     }
 }
+
+int restart_sig(int sig, int flag)
+{
+    struct sigaction cur;
+    int ret = 0;
+
+    do {
+	if (sigaction(sig, NULL, &cur) == 0)
+	    break;
+    } while (errno == EINTR);
+
+    if (flag)
+	cur.sa_flags |= SA_RESTART;
+    else
+	cur.sa_flags &= ~SA_RESTART;
+
+    do {
+	if ((ret = sigaction(sig, &cur, NULL)) == 0)
+	    break;
+    } while (errno == EINTR);
+
+    return ret;
+}

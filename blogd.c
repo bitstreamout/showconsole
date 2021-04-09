@@ -351,10 +351,10 @@ int main(int argc, char *argv[])
     set_signal(SIGQUIT, &saved_sigquit, sighandle);
     set_signal(SIGTERM, &saved_sigterm, sighandle);
     set_signal(SIGSYS,  &saved_sigsys,  sigsys);
-    (void)siginterrupt(SIGINT,  0);
-    (void)siginterrupt(SIGQUIT, 0);
-    (void)siginterrupt(SIGTERM, 0);
-    (void)siginterrupt(SIGSYS,  0);
+    (void)restart_sig(SIGINT,  1);
+    (void)restart_sig(SIGQUIT, 1);
+    (void)restart_sig(SIGTERM, 1);
+    (void)restart_sig(SIGSYS,  1);
 
     list_for_each_entry(c, &cons->node, node) {
 	struct termios oldtio;
