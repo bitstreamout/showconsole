@@ -15,7 +15,7 @@ BOOT_FIFO	= /dev/blog
 DEBUG	 =
 DESTDIR	 =
 MAJOR	 :=	2
-MINOR	 :=	22
+MINOR	 :=	24
 VERSION	 :=	$(MAJOR).$(MINOR)
 DATE	 =	$(shell date +'%d%b%y' | tr '[:lower:]' '[:upper:]')
 COPTS    =
@@ -146,6 +146,9 @@ install:	$(TODO)
 	for target in default sysinit basic local-fs-pre rescue shutdown emergency initrd-switch-root; do \
 	    $(MKDIR) $(DESTDIR)$(SYSDUNITS)/$${target}.target.wants ; \
 	done
+	for service in systemd-ask-password-blog ; do \
+	    $(MKDIR) $(DESTDIR)$(SYSDUNITS)/$${target}.service.wants ; \
+	done
 	for unit in blog-quit.service ; do \
 	    $(LINK) ../$${unit} $(DESTDIR)$(SYSDUNITS)/default.target.wants/$${unit} ; \
 	    $(LINK) ../$${unit} $(DESTDIR)$(SYSDUNITS)/rescue.target.wants/$${unit} ; \
@@ -154,9 +157,8 @@ install:	$(TODO)
 	for unit in blog.service ; do \
 	    $(LINK) ../$${unit} $(DESTDIR)$(SYSDUNITS)/basic.target.wants/$${unit} ; \
 	done
-	for unit in blog-store-messages.service ; do \
+	for unit in blog-store-messages.service systemd-ask-password-blog.path ; do \
 	    $(LINK) ../$${unit} $(DESTDIR)$(SYSDUNITS)/sysinit.target.wants/$${unit} ; \
-	    $(LINK) ../$${unit} $(DESTDIR)$(SYSDUNITS)/shutdown.target.wants/$${unit} ; \
 	done
 	for unit in blog-umount.service ; do \
 	    $(LINK) ../$${unit} $(DESTDIR)$(SYSDUNITS)/local-fs-pre.target.wants/$${unit} ; \

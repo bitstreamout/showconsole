@@ -32,6 +32,10 @@ install() {
     do
 	ln_r "${systemdsystemunitdir}/${s}" "${systemdsystemunitdir}/basic.target.wants/${s}"
     done
+    for s in systemd-ask-password-blog.path
+    do
+	ln_r "${systemdsystemunitdir}/${s}" "${systemdsystemunitdir}/sysinit.target.wants/${s}"
+    done
     for s in blog-final.service
     do
 	ln_r "${systemdsystemunitdir}/${s}" "${systemdsystemunitdir}/shutdown.target.wants/${s}"
