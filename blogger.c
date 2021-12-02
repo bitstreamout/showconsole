@@ -17,9 +17,13 @@
 #include <unistd.h>
 #include "libblogger.h"
 
+volatile char *arg0;
+
 int main(int argc, char * argv[])
 {
     int c, lvl = 'n';
+
+    arg0 = (volatile char*)argv[0];
 
     while ((c = getopt(argc, argv, "ndfsu")) != -1) {
 	switch (c) {
