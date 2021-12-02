@@ -3,7 +3,9 @@ Description=Tell blogd about writable boot log
 DefaultDependencies=no
 RequiresMountsFor=@@BOOT_LOGFILE@@
 Conflicts=shutdown.target
-After=systemd-remount-fs.service auditd.service
+Requisite=systemd-update-utmp.service
+After=systemd-update-utmp.service
+After=systemd-remount-fs.service systemd-tmpfiles-setup.service auditd.service
 Before=sysinit.target shutdown.target
 ConditionPathExists=!/etc/initrd-release
 
@@ -11,8 +13,7 @@ ConditionPathExists=!/etc/initrd-release
 Type=oneshot
 TimeoutSec=20
 RemainAfterExit=yes
-ExecStart=-/sbin/blogctl ready
-ExecStop=-/sbin/blogctl close
+ExecStart=/sbin/blogctl ready
 
 [Install]
-WantedBy=sysinit.target halt.target kexec.target poweroff.target reboot.target
+WantedBy=sysinit.target

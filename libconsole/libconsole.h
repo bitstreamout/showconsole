@@ -91,6 +91,7 @@ extern void error (const char *fmt, ...);
 #define MAGIC_PING		'P'
 #define MAGIC_QUIT		'Q'
 #define MAGIC_CLOSE		'X'	/* Not known by plymouthd, but blogd does close log file */
+#define MAGIC_FINAL		'F'	/* Not known by plymouthd, but blogd move log to old log */
 #define MAGIC_CACHED_PWD	'c'
 #define MAGIC_ASK_PWD		'*'
 #define MAGIC_DETAILS		'!'	/* blogd does always spool log messages */

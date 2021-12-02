@@ -69,7 +69,7 @@ endif
 #
 #
 TODO	=	showconsole blogd blogger blogctl isserial libblogger.so
-TODO	+=	blog-store-messages.service blogd.8 blogger.8
+TODO	+=	blog-store-messages.service blog-umount.service blogd.8 blogger.8
 L	:=	libconsole/
 CFLAGS	+=	-I ./ -I ./$(L)
 libfiles := $(sort $(wildcard $(L)*.c))
@@ -120,12 +120,6 @@ install:	$(TODO)
 	$(MKDIR)	$(DESTDIR)$(INCDIR)
 	$(MKDIR)	$(DESTDIR)$(DRACUTMOD)
 	$(MKDIR)	$(DESTDIR)$(SYSDUNITS)
-	for target in basic default emergency halt initrd-switch-root kexec multi-user poweroff reboot rescue shutdown sysinit ; do \
-	    $(MKDIR)	$(DESTDIR)$(SYSDUNITS)/$${target}.target.wants ; \
-	done
-	for unit in systemd-ask-password-blog ; do \
-	    $(MKDIR)	$(DESTDIR)$(SYSDUNITS)/$${unit}.service.wants ; \
-	done
 	$(INSTBIN) showconsole		$(DESTDIR)$(SBINDIR)/
 	$(LINK)    showconsole		$(DESTDIR)$(SBINDIR)/setconsole
 	$(INSTBIN) blogger		$(DESTDIR)$(SBINDIR)/
@@ -149,25 +143,35 @@ install:	$(TODO)
 	for unit in systemd-ask-password-blog.path systemd-ask-password-blog.service ; do \
 	    $(INSTCON) $${unit}		$(DESTDIR)$(SYSDUNITS)/ ; \
 	done
+	for target in default sysinit basic local-fs-pre rescue shutdown emergency initrd-switch-root; do \
+	    $(MKDIR) $(DESTDIR)$(SYSDUNITS)/$${target}.target.wants ; \
+	done
+	for unit in blog-quit.service ; do \
+	    $(LINK) ../$${unit} $(DESTDIR)$(SYSDUNITS)/default.target.wants/$${unit} ; \
+	    $(LINK) ../$${unit} $(DESTDIR)$(SYSDUNITS)/rescue.target.wants/$${unit} ; \
+	    $(LINK) ../$${unit} $(DESTDIR)$(SYSDUNITS)/emergency.target.wants/$${unit} ; \
+	done
 	for unit in blog.service ; do \
 	    $(LINK) ../$${unit} $(DESTDIR)$(SYSDUNITS)/basic.target.wants/$${unit} ; \
 	done
-	for unit in blog-final.service blog-umount.service ; do \
-	    $(LINK) ../$${unit}		$(DESTDIR)$(SYSDUNITS)/halt.target.wants/$${unit} ; \
-	    $(LINK) ../$${unit}		$(DESTDIR)$(SYSDUNITS)/kexec.target.wants/$${unit} ; \
-	    $(LINK) ../$${unit}		$(DESTDIR)$(SYSDUNITS)/poweroff.target.wants/$${unit} ; \
-	    $(LINK) ../$${unit}		$(DESTDIR)$(SYSDUNITS)/reboot.target.wants/$${unit} ; \
+	for unit in blog-store-messages.service ; do \
+	    $(LINK) ../$${unit} $(DESTDIR)$(SYSDUNITS)/sysinit.target.wants/$${unit} ; \
+	    $(LINK) ../$${unit} $(DESTDIR)$(SYSDUNITS)/shutdown.target.wants/$${unit} ; \
 	done
-	for unit in blog-quit.service ; do \
-	    $(LINK) ../$${unit}		$(DESTDIR)$(SYSDUNITS)/default.target.wants/$${unit} ; \
-	    $(LINK) ../$${unit}		$(DESTDIR)$(SYSDUNITS)/emergency.target.wants/$${unit} ; \
-	    $(LINK) ../$${unit}		$(DESTDIR)$(SYSDUNITS)/rescue.target.wants/$${unit} ; \
+	for unit in blog-umount.service ; do \
+	    $(LINK) ../$${unit} $(DESTDIR)$(SYSDUNITS)/local-fs-pre.target.wants/$${unit} ; \
+	done
+	for unit in blog-final.service ; do \
+	    $(LINK) ../$${unit} $(DESTDIR)$(SYSDUNITS)/shutdown.target.wants/$${unit} ; \
+	done
+	for target in systemd-ask-password-blog.service ; do \
+	    $(MKDIR) $(DESTDIR)$(SYSDUNITS)/$${target}.wants ; \
 	done
 	for unit in blog.service blog-switch-root.service ; do \
-	    $(LINK) ../$${unit}		$(DESTDIR)$(SYSDUNITS)/initrd-switch-root.target.wants/$${unit} ; \
+	    $(LINK) ../$${unit} $(DESTDIR)$(SYSDUNITS)/initrd-switch-root.target.wants/$${unit} ; \
 	done
-	for unit in blog-store-messages.service systemd-ask-password-blog.path ; do \
-	    $(LINK) ../$${unit}		$(DESTDIR)$(SYSDUNITS)/sysinit.target.wants/${uni$t} ; \
+	for unit in systemd-vconsole-setup.service ; do \
+	    $(LINK) ../$${unit} $(DESTDIR)$(SYSDUNITS)/systemd-ask-password-blog.service.wants/$${unit} ; \
 	done
 
 #
@@ -197,7 +201,7 @@ FILES	= README	\
 	  blog-quit.service			\
 	  blog-store-messages.service.in	\
 	  blog-switch-root.service		\
-	  blog-umount.service			\
+	  blog-umount.service.in			\
 	  systemd-ask-password-blog.path	\
 	  systemd-ask-password-blog.service	\
 	  module-setup.sh			\

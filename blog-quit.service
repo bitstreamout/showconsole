@@ -10,7 +10,8 @@ After=default.target
 [Service]
 Type=oneshot
 TimeoutSec=20
-ExecStart=-/sbin/blogctl quit
+RemainAfterExit=yes
+ExecStart=/sbin/blogctl quit
 
 [Install]
 WantedBy=default.target

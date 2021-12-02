@@ -16,6 +16,7 @@
 #include <limits.h>
 #include <linux/magic.h>
 #include <linux/major.h>
+#include <pty.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -49,6 +50,7 @@
 #endif
 
 int final = 0;
+extern volatile char *arg0;
 
 /*
  * Used to ignore some signals during epoll_pwait(2) or ppoll(2)
@@ -60,9 +62,6 @@ sigset_t omask;
  */
 int epfd  = -1;
 int evmax;
-static int requests = 0;
-
-#define REQUEST_CLOSE	(1<<0)
 
 /*
  * Remember if we're signaled.
@@ -451,9 +450,6 @@ skip:
 	    stop_logging();
 	    flog = close_logging();
 	}
-	if (requests & REQUEST_CLOSE) {
-	    ;
-	}
 	if (nsigio < 0) {
 	    nsigio = SIGIO;
 	    (void)set_signal(SIGIO, NULL, SIG_IGN);
@@ -500,10 +496,6 @@ void closeIO(void)
 
     stop_logging();
     flog = close_logging();
-
-    if (requests & REQUEST_CLOSE) {
-	;
-    }
 
     if (fdfifo >= 0) {
 	epoll_delete(fdfifo);
@@ -687,7 +679,7 @@ err:
  */
 static void epoll_console_in(int fd)
 {
-    const ssize_t cnt = safein(fdread, trans, sizeof(trans));
+    const ssize_t cnt = safein(fd, trans, sizeof(trans));
     static struct winsize owz;
     struct winsize wz;
 
@@ -939,6 +931,103 @@ static void socket_handler(int fd)
 
 	break;
 
+    case MAGIC_DEACTIVATE:
+
+	if (fdread >= 0) {
+	    struct console *c;
+
+	    list_for_each_entry(c, &cons->node, node) {
+		if (c->flags & CON_CONSDEV) {
+		    if (c->fd > 0) {
+			epoll_delete(fdread);
+			(void)ioctl(c->fd, TIOCCONS, NULL);
+			close(fdread);
+			dup2(c->fd, 0);
+			dup2(0, 1);
+			dup2(0, 2);
+			fdread = -1;
+		    }
+		    break;
+		}
+	    }
+	}
+
+	enqry = ANSWER_ACK;
+	safeout(fd, enqry, strlen(enqry)+1, SSIZE_MAX);
+
+	break;
+
+    case MAGIC_REACTIVATE:
+
+	if (fdread < 0) {
+	    struct console *c;
+
+	    list_for_each_entry(c, &cons->node, node) {
+		if (c->flags & CON_CONSDEV) {
+		    if (c->fd > 0) {
+			char ptsname[NAME_MAX+1];
+			struct termios o;
+			struct winsize w;
+			struct stat st;
+			speed_t ospeed = B38400;
+			speed_t ispeed = B38400;
+			int ptm, pts;
+
+			w.ws_row = 0;
+			w.ws_col = 0;
+			if (ioctl(c->fd, TIOCGWINSZ, &w) < 0)
+			    error("can not get window size of %s", c->tty);
+
+			if (!w.ws_row)
+			    w.ws_row = 24;
+			if (!w.ws_col)
+			    w.ws_col = 80;
+
+			memcpy(&o, &c->otio, sizeof(o));
+			cfmakeraw(&o);
+			cfsetispeed(&o, ispeed);
+			cfsetospeed(&o, ospeed);
+			o.c_lflag &= ~ECHO;
+			o.c_lflag |= ISIG;
+			o.c_cc[VTIME] = 0;
+			o.c_cc[VMIN]  = CMIN;
+
+			if (openpty(&ptm, &pts, ptsname, &o, &w) < 0)
+			    error("can not open pty/tty pair");
+
+			if (fstat(pts, &st) < 0)
+			    error("can not stat slave pty");
+			else {
+			    struct termios lock;
+			    memset(&lock, 0xff, sizeof(lock));
+			    (void)ioctl(pts, TIOCSLCKTRMIOS, &lock);
+			}
+
+			if (ioctl(pts, TIOCCONS, NULL) < 0)
+			    error("can not set console device to %s", ptsname);
+
+			dup2(ptm, 0);
+			if (ptm > 0)
+			    close(ptm);
+
+			dup2(pts, 1);
+			dup2(pts, 2);
+			if (pts > 2)
+			    close(pts);
+
+			epoll_addread(0, &epoll_console_in);
+			fdread = 0;
+		    }
+		    break;
+		}
+	    }
+	}
+
+	enqry = ANSWER_ACK;
+	safeout(fd, enqry, strlen(enqry)+1, SSIZE_MAX);
+
+	break;
+
     case MAGIC_QUIT:
 
 	enqry = ANSWER_ACK;
@@ -950,9 +1039,31 @@ static void socket_handler(int fd)
 
 	break;
 
-    case MAGIC_CLOSE:
+    case MAGIC_FINAL:
 
-	requests |= REQUEST_CLOSE;
+	enqry = ANSWER_ACK;
+	safeout(fd, enqry, strlen(enqry)+1, SSIZE_MAX);
+
+	if (!final) {
+	    int ret;
+
+	    final = 1;
+
+	    if (arg0[0] != '@')
+		arg0[0] = '@';
+
+	    ret = rename(BOOT_LOGFILE, BOOT_OLDLOGFILE);
+	    if (ret < 0) {
+		if (errno == EACCES || errno == EROFS || errno == EPERM)
+		    goto skip;
+		if (errno != ENOENT)
+		    error("Can not rename %s", BOOT_LOGFILE);
+	    }
+	}
+    skip:
+	break;
+
+    case MAGIC_CLOSE:
 
 	enqry = ANSWER_ACK;
 	safeout(fd, enqry, strlen(enqry)+1, SSIZE_MAX);

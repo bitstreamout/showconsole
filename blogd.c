@@ -221,13 +221,13 @@ static volatile pid_t pid = -1;
 
 static void flush_handler (void) attribute((noinline));
 static void exit_handler (void) attribute((noinline));
+volatile char *arg0;
 
 /*
  * Now do the job
  */
 int main(int argc, char *argv[])
 {
-    volatile char *arg0 = argv[0];
     char ptsname[NAME_MAX+1];
     const char *tty, *stt;
     struct console *c;
@@ -247,6 +247,8 @@ int main(int argc, char *argv[])
     if (kill (1, SIGRTMIN+20) < 0)
 	warn("could not tell system to show its status");
 
+    arg0 = (volatile char*)argv[0];
+
     while ((arg = getopt(argc, argv, "f")) != -1) {
 	switch (arg) {
 	case 'f':
@@ -261,6 +263,7 @@ int main(int argc, char *argv[])
     argc -= optind;
 
     myname = program_invocation_short_name;
+    getconsoles(&cons, 1);
 
     close(0);
     close(1);
@@ -269,6 +272,7 @@ int main(int argc, char *argv[])
 	error("Can not open system console %s", console);
 
     if (fd > 0) {
+	(void)ioctl(fd, TIOCNXCL);	/* Avoid EBUSY */
 	dup2(fd, 0);
 	close(fd);
     }
@@ -278,8 +282,6 @@ int main(int argc, char *argv[])
     tty = console;
 
     (void)ioctl(0, TIOCCONS, NULL);  /* Undo any current map if any */
-
-    getconsoles(&cons, 1);
 
     list_for_each_entry(c, &cons->node, node) {
 	speed_t ospeed;
@@ -336,6 +338,10 @@ int main(int argc, char *argv[])
     if (ioctl(pts, TIOCCONS, NULL) < 0)
 	error("can not set console device to %s", ptsname);
 
+    /*
+     * Reconnecting to stdin aka ptm to 0 is done after we fork away
+     */
+
     dup2(pts,  1);
     dup2(pts,  2);	/* Now we are blind upto safeIO() loop */
     if (pts > 2)
@@ -362,7 +368,7 @@ int main(int argc, char *argv[])
 	speed_t ispeed;
 	int flags;
 
-	(void)ioctl(fd, TIOCNXCL);	/* Avoid EBUSY */
+	(void)ioctl(c->fd, TIOCNXCL);	/* Avoid EBUSY */
 
 #ifdef _PC_MAX_CANON
 	if ((c->max_canon = (ssize_t)fpathconf(c->fd, _PC_MAX_CANON)) <= 0)

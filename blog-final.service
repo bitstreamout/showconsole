@@ -2,21 +2,12 @@
 Description=Start Blogd at System Shutdown
 DefaultDependencies=no
 Before=shutdown.target
-Before=halt.target
-Before=kexec.target
-Before=poweroff.target
-Before=reboot.target
 RefuseManualStart=true
 
 [Service]
 Type=forking
-KillMode=none
 SendSIGKILL=no
-RemainAfterExit=yes
 ExecStart=/sbin/blogd -f
 
 [Install]
-WantedBy=halt.target
-WantedBy=kexec.target
-WantedBy=poweroff.target
-WantedBy=reboot.target
+WantedBy=shutdown.target

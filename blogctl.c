@@ -47,6 +47,7 @@ static int getcmd(int argc, char *argv[])
 	{ "ping",		MAGIC_PING,		0, NULL	},	/* Ping */
 	{ "ready",		MAGIC_SYS_INIT,		0, NULL	},	/* System ready */
 	{ "quit",		MAGIC_QUIT,		0, NULL	},	/* Quit */
+	{ "final",		MAGIC_FINAL,		0, NULL	},	/* Final */
 	{ "close",		MAGIC_CLOSE,		0, NULL	},	/* Close logging only */
 	{ "deactivate",		MAGIC_DEACTIVATE,	0, NULL	},	/* Deactivate logging */
 	{ "reactivate",		MAGIC_REACTIVATE,	0, NULL	},	/* Reactivate logging */
@@ -107,13 +108,13 @@ int main(int argc, char *argv[])
 	case MAGIC_PING:
 	case MAGIC_SYS_INIT:
 	case MAGIC_QUIT:
+	case MAGIC_FINAL:
 	case MAGIC_CLOSE:
 	case MAGIC_DEACTIVATE:
 	case MAGIC_REACTIVATE:
 	    fdsock = getsocket();
 	    if (fdsock >= 0)
 		safeout(fdsock, cmd, strlen(cmd)+1, SSIZE_MAX);
-	    break;
 	    break;
         case '?':
         default:

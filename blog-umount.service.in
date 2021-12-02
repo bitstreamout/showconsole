@@ -1,0 +1,15 @@
+[Unit]
+Description=Tell blogd to close log file
+DefaultDependencies=no
+Conflicts=shutdown.target
+Before=systemd-tmpfiles-setup.service
+RequiresMountsFor=@@BOOT_OLDLOGFILE@@
+
+[Service]
+Type=oneshot
+TimeoutSec=0
+RemainAfterExit=yes
+ExecStop=/sbin/blogctl close
+
+[Install]
+WantedBy=local-fs-pre.target

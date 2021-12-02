@@ -15,7 +15,8 @@ blogctl \- Control the boot loggind daemon blogd
 .B /sbin/blogctl
 .RI [ ping | quit | root=<path> | ready | close ]
 .SH DESCRIPTION
-.B blogctl may be used to check if a
+.B blogctl
+may be used to check if a
 .B blogd
 daemon is active as well as to send comands to such a daemon.
 .SH COMANDS
@@ -46,6 +47,12 @@ Cause the
 daemon to finish its logging only to allow
 .BR systemd (8)
 to unmount the file systems finally.
+.TP
+.B deactivate
+This let the daemon disconnect from system console.
+.TP
+.B reactivate
+Whereas this cause the daemon reconnect to system console.
 .SH SEE ALSO
 .BR blogd (8),
 .BR systemd (1),
