@@ -50,7 +50,17 @@
 #endif
 
 int final = 0;
-extern volatile char *arg0;
+static volatile char *_arg0;
+
+/*
+ * Avoid trouble if linked with e.g. blogger as there
+ * is no external arg0 but linker on ppc64 and s390/x
+ * seems to expect this.
+ */
+void remember_arg0(volatile char *arg0)
+{
+    _arg0 = arg0;
+}
 
 /*
  * Used to ignore some signals during epoll_pwait(2) or ppoll(2)
@@ -1044,13 +1054,13 @@ static void socket_handler(int fd)
 	enqry = ANSWER_ACK;
 	safeout(fd, enqry, strlen(enqry)+1, SSIZE_MAX);
 
-	if (!final) {
+	if (!final && _arg0) {
 	    int ret;
 
 	    final = 1;
 
-	    if (arg0[0] != '@')
-		arg0[0] = '@';
+	    if (_arg0[0] != '@')
+		_arg0[0] = '@';
 
 	    ret = rename(BOOT_LOGFILE, BOOT_OLDLOGFILE);
 	    if (ret < 0) {

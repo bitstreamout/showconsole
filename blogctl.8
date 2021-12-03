@@ -53,6 +53,14 @@ This let the daemon disconnect from system console.
 .TP
 .B reactivate
 Whereas this cause the daemon reconnect to system console.
+.TP
+.B final
+Evoke the daemon to rename an already open log file
+.I /var/log/boot.log
+to the new name
+.I /var/log/boot.old
+as well as mask it own program name in the process table
+with the @ character.
 .SH SEE ALSO
 .BR blogd (8),
 .BR systemd (1),

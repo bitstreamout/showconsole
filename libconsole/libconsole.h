@@ -122,6 +122,7 @@ extern int evmax;
 extern volatile sig_atomic_t signaled;
 extern volatile sig_atomic_t nsigsys;
 
+extern void remember_arg0(volatile char *arg0);
 extern ssize_t safein (int fd, void *ptr, size_t s);
 extern void safeout (int fd, const void *ptr, size_t s, ssize_t max);
 

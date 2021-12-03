@@ -221,7 +221,6 @@ static volatile pid_t pid = -1;
 
 static void flush_handler (void) attribute((noinline));
 static void exit_handler (void) attribute((noinline));
-volatile char *arg0;
 
 /*
  * Now do the job
@@ -230,6 +229,7 @@ int main(int argc, char *argv[])
 {
     char ptsname[NAME_MAX+1];
     const char *tty, *stt;
+    volatile char *arg0;
     struct console *c;
     struct termios o;
     struct winsize w;
@@ -248,6 +248,7 @@ int main(int argc, char *argv[])
 	warn("could not tell system to show its status");
 
     arg0 = (volatile char*)argv[0];
+    remember_arg0(arg0);
 
     while ((arg = getopt(argc, argv, "f")) != -1) {
 	switch (arg) {
