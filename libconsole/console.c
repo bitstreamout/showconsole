@@ -49,6 +49,16 @@
 # define _PATH_BLOG_FIFO	"/dev/blog"
 #endif
 
+#if defined(__s390__)
+# define RED	""
+# define BOLD	">> "
+# define NORM	""
+#else
+# define RED	"\e[31m"
+# define BOLD	"\e[1m"
+# define NORM	"\e[m"
+#endif
+
 int final = 0;
 static volatile char *_arg0;
 
@@ -101,9 +111,23 @@ static void (*vc_reconnect)(int fd);
 void safeout (int fd, const void *ptr, size_t s, ssize_t max)
 {
     int saveerr = errno;
+    int issocket = 0;
+    struct stat st;
+
+    if (fstat(fd, &st) < 0)
+	goto out;
+    if (S_ISSOCK(st.st_mode))
+	issocket++;
 
     while (s > 0) {
-	ssize_t p = write (fd, ptr, (max < 1) ? 1 : ((s < (size_t)max) ? s : (size_t)max));
+	ssize_t p;
+	if (issocket) {
+	    int flags = MSG_NOSIGNAL;
+            if (s > max)
+		flags |= MSG_MORE;
+	    p = send (fd, ptr, (max < 1) ? 1 : ((s < (size_t)max) ? s : (size_t)max), flags);
+        } else
+	    p = write (fd, ptr, (max < 1) ? 1 : ((s < (size_t)max) ? s : (size_t)max));
 	if (p < 0) {
 	    if (errno == EPIPE)
 		break;
@@ -167,7 +191,7 @@ ssize_t safein (int fd, void *ptr, size_t s)
 	    if (safein_noexit || signaled)
 		goto out;
 	    if (fd == 0 && errno == EIO)
-		warn("\e[31m\e[1msystem console stolen at line %d!\e[m", __LINE__);
+		warn(RED BOLD "system console stolen at line %d!" NORM, __LINE__);
 	    lerror("Can not read from fd %d", fd);
 	}
 
@@ -191,7 +215,7 @@ ssize_t safein (int fd, void *ptr, size_t s)
 	    if (safein_noexit || signaled)
 		goto out;
 	    if (fd == 0 && errno == EIO)
-		warn("\e[31m\e[1msystem console stolen at line %d!\e[m", __LINE__);
+		warn(RED BOLD "system console stolen at line %d!" NORM, __LINE__);
 	    lerror("Can not read from fd %d", fd);
 	}
 	repeated = 0;
@@ -1184,7 +1208,7 @@ static void ask_for_password(void)
 	    if (c->flags & CON_SERIAL)
 		len = asprintf(&message, "\n\r%s: ", pwprompt);
 	    else
-		len = asprintf(&message, "\e[1m\r%s:\e[m ", pwprompt);
+		len = asprintf(&message, BOLD "\r%s: " NORM, pwprompt);
 	    if (len < 0) {
 		warn("can not set password prompt");
 		_exit(1);

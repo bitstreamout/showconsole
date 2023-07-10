@@ -35,11 +35,11 @@ static int getsocket(void)
     return fd;
 }
 
-static int getcmd(int argc, char *argv[])
+static char getcmd(int argc, char *argv[])
 {
     static const struct {
 	const char* cmd;
-	const int req;
+	const char req;
 	const int arg;
 	const char* opt;
     } cmds[] = {
@@ -53,7 +53,7 @@ static int getcmd(int argc, char *argv[])
 	{ "reactivate",		MAGIC_REACTIVATE,	0, NULL	},	/* Reactivate logging */
 	{}
     }, *cmd = cmds;
-    int ret = -1;
+    char ret = (char)-1;
 
     if (argc <= 1)
 	goto out;
@@ -87,7 +87,13 @@ int main(int argc, char *argv[])
     int fdsock = -1, ret, len;
 
     cmd[1] = '\0';
-    while ((cmd[0] = getcmd(argc, argv)) != -1) {
+    answer[0] = '\x15';
+
+    fdsock = getsocket();
+    if (fdsock < 0)
+	error("no blogd active");
+
+    while ((cmd[0] = getcmd(argc, argv)) != (char)-1) {
         switch (cmd[0]) {
 	case MAGIC_CHROOT:
 	    root = optarg;
@@ -100,9 +106,7 @@ int main(int argc, char *argv[])
 	    ret = asprintf(&message, "%c\002%c%s%n", cmd[0], (int)(strlen(root) + 1), root, &len);
 	    if (ret < 0)
 		error("can not allocate message");
-	    fdsock = getsocket();
-	    if (fdsock >= 0)
-		safeout(fdsock, message, len+1, SSIZE_MAX);
+	    safeout(fdsock, message, len+1, SSIZE_MAX);
 	    free(message);
 	    break;
 	case MAGIC_PING:
@@ -112,24 +116,26 @@ int main(int argc, char *argv[])
 	case MAGIC_CLOSE:
 	case MAGIC_DEACTIVATE:
 	case MAGIC_REACTIVATE:
-	    fdsock = getsocket();
-	    if (fdsock >= 0)
-		safeout(fdsock, cmd, strlen(cmd)+1, SSIZE_MAX);
+	    safeout(fdsock, cmd, strlen(cmd)+1, SSIZE_MAX);
 	    break;
-        case '?':
-        default:
-            return 1;
+	case '?':
+	default:
+	    goto fail;
         }
 
-	answer[0] = '\0';
-	if (fdsock >= 0) {
-	    if (can_read(fdsock, 1000))
-		safein(fdsock, &answer[0], sizeof(answer));
-	    close(fdsock);
+	if (can_read(fdsock, 1000)) {
+	    answer[0] = '\0';
+	    safein(fdsock, &answer[0], sizeof(answer));
 	}
+
+	break;		/* One command per call only */
     }
+
     argv += optind;
     argc -= optind;
+fail:
+    if (fdsock >= 0)
+	close(fdsock);
 
     return answer[0] == '\x6' ? 0 : 1;
 }

@@ -28,12 +28,12 @@ ssize_t readpw(int fd, char *pass, int eightbit)
 {
     char *ptr = pass;
     struct chardata cp;
-    int c, ret;
+    int ret;
 
     cp.eol = *ptr = '\0'; 
 
     while (cp.eol == '\0') {
-	char ascval;
+	char ascval, c;
 
 	ret = read(fd, &c, 1);
 	if (ret < 0) {
@@ -58,7 +58,7 @@ ssize_t readpw(int fd, char *pass, int eightbit)
 	if (eightbit)
 	    ascval = c;
 	else if (c != (ascval = (c & 0177))) {
-	    uint32_t bits, mask;
+	    uint8_t bits, mask;
 	    for (bits = 1, mask = 1; mask & 0177; mask <<= 1) {
 		if (mask & ascval)
 		    bits++;
