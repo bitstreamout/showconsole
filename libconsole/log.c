@@ -608,7 +608,7 @@ void stop_logging(void)
     unlock(&ljoin);
     ljoin.canceled = 1;
     pthread_cond_broadcast(&lcond);
-    pthread_yield();
+    sched_yield();
     if (ljoin.used && lthread)
 	pthread_cancel(lthread);
 }

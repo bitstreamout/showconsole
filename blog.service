@@ -15,6 +15,3 @@ Type=forking
 SendSIGKILL=no
 RemainAfterExit=yes
 ExecStart=/sbin/blogd
-
-[Install]
-WantedBy=basic.target

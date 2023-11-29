@@ -4,12 +4,10 @@ DefaultDependencies=no
 Conflicts=shutdown.target
 Before=systemd-tmpfiles-setup.service
 RequiresMountsFor=@@BOOT_OLDLOGFILE@@
+ConditionPathIsReadWrite=/var/log
 
 [Service]
 Type=oneshot
 TimeoutSec=0
 RemainAfterExit=yes
 ExecStop=/sbin/blogctl close
-
-[Install]
-WantedBy=local-fs-pre.target

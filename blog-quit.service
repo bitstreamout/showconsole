@@ -12,8 +12,3 @@ Type=oneshot
 TimeoutSec=20
 RemainAfterExit=yes
 ExecStart=/sbin/blogctl quit
-
-[Install]
-WantedBy=default.target
-WantedBy=emergency.target
-WantedBy=rescue.target

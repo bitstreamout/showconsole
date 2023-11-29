@@ -5,8 +5,8 @@ ConditionPathExists=/etc/initrd-release
 Before=initrd-switch-root.service
 
 [Service]
-ExecStart=-/sbin/blogctl root=/sysroot
 Type=oneshot
 StandardInput=null
 StandardOutput=null
 StandardError=null
+ExecStart=-/sbin/blogctl root=/sysroot

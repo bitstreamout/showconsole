@@ -15,7 +15,7 @@ BOOT_FIFO	= /dev/blog
 DEBUG	 =
 DESTDIR	 =
 MAJOR	 :=	2
-MINOR	 :=	24
+MINOR	 :=	28
 VERSION	 :=	$(MAJOR).$(MINOR)
 DATE	 =	$(shell date +'%d%b%y' | tr '[:lower:]' '[:upper:]')
 COPTS    =
@@ -137,13 +137,13 @@ install:	$(TODO)
 	$(INSTSCR) module-setup.sh	$(DESTDIR)$(DRACUTMOD)/
 	$(LINK) libblogger.so.$(MAJOR).$(MINOR)	$(DESTDIR)$(LIBDIR)/libblogger.so.$(MAJOR)
 	$(LINK) libblogger.so.$(MAJOR).$(MINOR)	$(DESTDIR)$(LIBDIR)/libblogger.so
-	for unit in blog blog-final blog-quit blog-store-messages blog-switch-root blog-umount ; do \
+	for unit in blog blog-final blog-quit blog-store-messages blog-switch-root blog-switch-initramfs blog-umount ; do \
 	    $(INSTCON) $${unit}.service $(DESTDIR)$(SYSDUNITS)/ ; \
 	done
 	for unit in systemd-ask-password-blog.path systemd-ask-password-blog.service ; do \
 	    $(INSTCON) $${unit}		$(DESTDIR)$(SYSDUNITS)/ ; \
 	done
-	for target in default sysinit basic local-fs-pre rescue shutdown emergency initrd-switch-root; do \
+	for target in default sysinit basic local-fs-pre rescue shutdown reboot poweroff kexec emergency initrd-switch-root; do \
 	    $(MKDIR) $(DESTDIR)$(SYSDUNITS)/$${target}.target.wants ; \
 	done
 	for service in systemd-ask-password-blog ; do \
@@ -163,8 +163,11 @@ install:	$(TODO)
 	for unit in blog-umount.service ; do \
 	    $(LINK) ../$${unit} $(DESTDIR)$(SYSDUNITS)/local-fs-pre.target.wants/$${unit} ; \
 	done
-	for unit in blog-final.service ; do \
+	for unit in blog-final.service blog-switch-initramfs.service ; do \
 	    $(LINK) ../$${unit} $(DESTDIR)$(SYSDUNITS)/shutdown.target.wants/$${unit} ; \
+	    $(LINK) ../$${unit} $(DESTDIR)$(SYSDUNITS)/reboot.target.wants/$${unit} ; \
+	    $(LINK) ../$${unit} $(DESTDIR)$(SYSDUNITS)/poweroff.target.wants/$${unit} ; \
+	    $(LINK) ../$${unit} $(DESTDIR)$(SYSDUNITS)/kexec.target.wants/$${unit} ; \
 	done
 	for target in systemd-ask-password-blog.service ; do \
 	    $(MKDIR) $(DESTDIR)$(SYSDUNITS)/$${target}.wants ; \
@@ -203,7 +206,8 @@ FILES	= README	\
 	  blog-quit.service			\
 	  blog-store-messages.service.in	\
 	  blog-switch-root.service		\
-	  blog-umount.service.in			\
+	  blog-switch-initramfs.service		\
+	  blog-umount.service.in		\
 	  systemd-ask-password-blog.path	\
 	  systemd-ask-password-blog.service	\
 	  module-setup.sh			\

@@ -342,9 +342,18 @@ int main(int argc, char *argv[])
     /*
      * Reconnecting to stdin aka ptm to 0 is done after we fork away
      */
-
-    dup2(pts,  1);
-    dup2(pts,  2);	/* Now we are blind upto safeIO() loop */
+#ifdef DEBUG
+    int l;
+    if ((l = open("/dev/shm/blog.out", O_WRONLY|O_NOCTTY|O_NONBLOCK|O_CREAT|O_APPEND, S_IWUSR|S_IRUSR|S_IRGRP|S_IROTH)) >= 0) {
+	dup2(l, STDOUT_FILENO);
+	dup2(l, STDERR_FILENO);
+	close(l);
+    } else
+#endif
+    {
+	dup2(pts,  1);
+	dup2(pts,  2);	/* Now we are blind upto safeIO() loop */
+    }
     if (pts > 2)
 	close(pts);
 
