@@ -405,9 +405,10 @@ int main(int argc, char *argv[])
 		ispeed = cfgetispeed(&c->otio);
 		ospeed = cfgetospeed(&c->otio);
 
-		c->otio.c_iflag = c->otio.c_lflag = 0;
-		c->otio.c_oflag = (ONLCR | OPOST);
-		c->otio.c_cflag = CREAD | CS8 | HUPCL | (c->otio.c_cflag & CLOCAL);
+		c->otio.c_iflag  = c->otio.c_lflag = 0;
+		c->otio.c_oflag  = (ONLCR | OPOST);
+		c->otio.c_oflag &= ~(OLCUC);
+		c->otio.c_cflag  = CREAD | CS8 | HUPCL | (c->otio.c_cflag & CLOCAL);
 
 		cfsetispeed(&c->otio, ispeed);
 		cfsetospeed(&c->otio, ospeed);
@@ -417,7 +418,7 @@ int main(int argc, char *argv[])
 		c->otio.c_iflag |= (ICRNL | IGNBRK);
 		c->otio.c_iflag &= ~(INLCR | IGNCR | BRKINT);
 		c->otio.c_oflag |= (ONLCR | OPOST);
-		c->otio.c_oflag &= ~(OCRNL | ONLRET);
+		c->otio.c_oflag &= ~(OCRNL | ONLRET | OLCUC);
 	}
 
 	(void)tcsetattr(c->fd, TCSADRAIN, &c->otio);

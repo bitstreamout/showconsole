@@ -113,7 +113,7 @@ struct console {
 #define CON_BOOT	(8)
 #define CON_ANYTIME	(16) /* Safe to call when cpu is offline */
 #define CON_BRL		(32) /* Used for a braille device */
-#define CON_SERIAL	(64) /* serial line */
+#define CON_SERIAL	(64) /* Serial line */
 
 extern sigset_t omask;
 extern int final;
@@ -121,6 +121,7 @@ extern int epfd;
 extern int evmax;
 extern volatile sig_atomic_t signaled;
 extern volatile sig_atomic_t nsigsys;
+extern volatile int asking;
 
 extern void remember_arg0(volatile char *arg0);
 extern ssize_t safein (int fd, void *ptr, size_t s);

@@ -1,7 +1,7 @@
 /*
  * console.c
  *
- * Copyright 2000,2015 Werner Fink, 2000 SuSE GmbH Nuernberg, Germany.
+ * Copyright 2000,2015,2025 Werner Fink, 2000 SuSE GmbH Nuernberg, Germany.
  * Copyright 2015 SuSE Linux GmbH.
  *
  * This source is free software; you can redistribute it and/or modify
@@ -23,6 +23,7 @@
 #include <string.h>
 #include <sys/epoll.h>
 #include <sys/ioctl.h>
+#include <sys/klog.h>
 #include <sys/mman.h>
 #include <sys/prctl.h>
 #include <sys/socket.h>
@@ -49,24 +50,31 @@
 # define _PATH_BLOG_FIFO	"/dev/blog"
 #endif
 
-#if defined(__s390__)
-# define RED	""
-# define BOLD	">> "
-# define NORM	""
-#else
-# define RED	"\e[31m"
-# define BOLD	"\e[1m"
-# define NORM	"\e[m"
-#endif
+#define RED	"\e[31m"
+#define BOLD	"\e[1m"
+#define NORM	"\e[m"
 
+/* Disable printk's to console */
+#define SYSLOG_ACTION_CONSOLE_OFF	6
+/* Enable printk's to console */
+#define SYSLOG_ACTION_CONSOLE_ON	7
+
+/*
+ * Password/Passphrase is asked if true.
+ */
+volatile int asking = 0;
+
+/*
+ * Move log file to old file
+ */
 int final = 0;
-static volatile char *_arg0;
 
 /*
  * Avoid trouble if linked with e.g. blogger as there
  * is no external arg0 but linker on ppc64 and s390/x
  * seems to expect this.
  */
+static volatile char *_arg0;
 void remember_arg0(volatile char *arg0)
 {
     _arg0 = arg0;
@@ -123,10 +131,10 @@ void safeout (int fd, const void *ptr, size_t s, ssize_t max)
 	ssize_t p;
 	if (issocket) {
 	    int flags = MSG_NOSIGNAL;
-            if (s > max)
+	    if (s > max)
 		flags |= MSG_MORE;
 	    p = send (fd, ptr, (max < 1) ? 1 : ((s < (size_t)max) ? s : (size_t)max), flags);
-        } else
+	} else
 	    p = write (fd, ptr, (max < 1) ? 1 : ((s < (size_t)max) ? s : (size_t)max));
 	if (p < 0) {
 	    if (errno == EPIPE)
@@ -257,9 +265,18 @@ static void sigio(int sig)
 }
 
 /*
- * Our transfer buffer
+ * Our transfer buffer from system console to the devices
  */
 static char trans[TRANS_BUFFER_SIZE];
+
+/*
+ * Our temporary buffer during asking a password/passphrase
+ */
+static	     char temp[4*TRANS_BUFFER_SIZE];
+static const char *const tend = temp + sizeof(temp);
+static       char *     thead = temp;
+static       char *     ttail = temp;
+static volatile ssize_t tavail;
 
 /*
  * Prepare I/O
@@ -716,6 +733,7 @@ static void epoll_console_in(int fd)
     const ssize_t cnt = safein(fd, trans, sizeof(trans));
     static struct winsize owz;
     struct winsize wz;
+    static int busy;
 
     if (cnt > 0) {
 	struct console *c;
@@ -741,13 +759,60 @@ static void epoll_console_in(int fd)
 
 	parselog(trans, cnt);				/* Parse and make copy of the input */
 
+	/*
+	 * During asking a password/passphrase we are temporary
+	 * buffer console output to release it if we've got an answer.
+	 */
+	if (asking) {
+	    if (cnt > (size_t)(tend - ttail)) {
+		klogctl(SYSLOG_ACTION_CONSOLE_OFF, NULL, 0);
+		busy++;					/* Overflow ... stop console output */
+	    } else {
+		memcpy(ttail, trans, cnt);
+		tavail = (ttail += cnt) - thead;
+	    }
+
+	    goto flush;                                 /* Temporary silent as waiting on passphrase */
+
+	} else while (tavail > 0) {			/* Empty temporary buffer if any */
+	    size_t len = (size_t)tavail;
+
+	    if (tavail > TRANS_BUFFER_SIZE)
+		len = TRANS_BUFFER_SIZE;
+
+	    list_for_each_entry(c, &cons->node, node) {
+		if (c->fd < 0)
+		    continue;
+		safeout(c->fd, thead, len, c->max_canon);
+		(void)tcdrain(c->fd);			/* Write copy of input to real tty */
+	    }
+	    thead += len;
+
+	    if (thead >= ttail) {
+		ttail = thead = temp;
+		tavail = 0;
+		break;
+	    }
+
+	    if (thead > temp) {				/* Buffer not empty, move contents */
+		tavail = ttail - thead;
+		thead = (char *)memmove(temp, thead, tavail);
+		ttail = thead + tavail;
+	    }
+	}
+
+	if (busy) {
+	    klogctl(SYSLOG_ACTION_CONSOLE_ON, NULL, 0);
+	    busy = 0;
+	}
+
 	list_for_each_entry(c, &cons->node, node) {
 	    if (c->fd < 0)
 		continue;
 	    safeout(c->fd, trans, cnt, c->max_canon);
 	    (void)tcdrain(c->fd);			/* Write copy of input to real tty */
 	}
-
+flush:
 	flushlog();
     }
 }
@@ -1137,10 +1202,21 @@ static void ask_for_password(void)
     sigset_t set = {};
     struct console *c;
     int wait = 0;
+    size_t len;
 
-    if (!pwprompt)
+    if (!pwprompt && !*pwprompt)
 	return;
 
+    len = strlen(pwprompt);
+    len--;
+    if (pwprompt[len] == ' ') {
+	pwprompt[len] = '\0';
+	len--;
+    }
+    if (pwprompt[len] == ':') {
+	pwprompt[len] = '\0';
+	len--;
+    }
     set_signal(SIGCHLD, NULL, chld_handler);
 
     /* pwprompt */
@@ -1205,14 +1281,22 @@ static void ask_for_password(void)
 
 	    clear_input(0);
 
-	    if (c->flags & CON_SERIAL)
-		len = asprintf(&message, "\n\r%s: ", pwprompt);
+#if defined(__s390__)
+	    if (major(c->dev) == 4 && minor(c->dev) >= 65)
+		len = asprintf(&message, BOLD RED "\n\r%s: " NORM, pwprompt);
 	    else
-		len = asprintf(&message, BOLD "\r%s: " NORM, pwprompt);
+		len = asprintf(&message, "\n\r>> %s: ", pwprompt);
+#else
+	    if (c->flags & CON_SERIAL)
+		len = asprintf(&message, BOLD RED "\n\r%s: " NORM, pwprompt);
+	    else
+		len = asprintf(&message, BOLD RED "\r%s: " NORM, pwprompt);
+#endif
 	    if (len < 0) {
 		warn("can not set password prompt");
 		_exit(1);
 	    }
+	    asking = 1;			/* Show only our question about password/passphrase */
 	    safeout(1, message, len, c->max_canon);
 	    free(message);
 
@@ -1231,6 +1315,7 @@ static void ask_for_password(void)
 
 	    tcsetattr(0, TCSANOW, &c->ctio);
 	    safeout(1, "\n", 1, c->max_canon);
+	    asking = 0;			/* Now throw out any collected messages if any */
 
 	    if (*pwsize < 0)
 		warn("can not read password");
@@ -1240,7 +1325,7 @@ static void ask_for_password(void)
 	}
     }
 
-    do {					/* Wait on any job if any */
+    do {				/* Wait on any job if any */
 	int ret;
 
 	status.si_pid = 0;
@@ -1255,7 +1340,7 @@ static void ask_for_password(void)
 	    if (errno == EINTR)
 		continue;
 	}
-
+	asking = 0;			/* Now throw out any collected messages if any */
 	error("can not wait on password asking process");
 
     } while (1);
@@ -1265,22 +1350,24 @@ static void ask_for_password(void)
 	    continue;
 	if (c->pid < 0)
 	    continue;
-	if (c->pid == status.si_pid)		/* Remove first reply ... */
+	if (c->pid == status.si_pid)	/* Remove first reply ... */
 	    c->pid = -1;
 	else {
-	    kill(c->pid, SIGTERM);		/* and terminate the others */
+	    kill(c->pid, SIGTERM);	/* and terminate the others */
 	    wait++;
 	}
     }
 
     sigemptyset(&set);
-    sigaddset(&set, SIGCHLD);			/* On exit we'll see SIGCHLD */
+    sigaddset(&set, SIGCHLD);		/* On exit we'll see SIGCHLD */
 
     do {
 	int signum, ret;
 
-	if (!wait)
+	if (!wait) {
+	    asking = 0;			/* Now throw out any collected messages if any */
 	    break;
+	}
 
 	status.si_pid = 0;
 	ret = waitid(P_ALL, 0, &status, WEXITED|WNOHANG);
