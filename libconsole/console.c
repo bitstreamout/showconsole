@@ -58,11 +58,15 @@
 #define SYSLOG_ACTION_CONSOLE_OFF	6
 /* Enable printk's to console */
 #define SYSLOG_ACTION_CONSOLE_ON	7
+/* Set level of messages printed to console */
+#define SYSLOG_ACTION_CONSOLE_LEVEL	8
+/* Return number of unread characters in the log buffer */
+#define SYSLOG_ACTION_SIZE_UNREAD	9
 
 /*
  * Password/Passphrase is asked if true.
  */
-volatile int asking = 0;
+volatile sig_atomic_t asking;
 
 /*
  * Move log file to old file
@@ -733,7 +737,6 @@ static void epoll_console_in(int fd)
     const ssize_t cnt = safein(fd, trans, sizeof(trans));
     static struct winsize owz;
     struct winsize wz;
-    static int busy;
 
     if (cnt > 0) {
 	struct console *c;
@@ -764,10 +767,7 @@ static void epoll_console_in(int fd)
 	 * buffer console output to release it if we've got an answer.
 	 */
 	if (asking) {
-	    if (cnt > (size_t)(tend - ttail)) {
-		klogctl(SYSLOG_ACTION_CONSOLE_OFF, NULL, 0);
-		busy++;					/* Overflow ... stop console output */
-	    } else {
+	    if (cnt <= (size_t)(tend - ttail)) {
 		memcpy(ttail, trans, cnt);
 		tavail = (ttail += cnt) - thead;
 	    }
@@ -799,11 +799,6 @@ static void epoll_console_in(int fd)
 		thead = (char *)memmove(temp, thead, tavail);
 		ttail = thead + tavail;
 	    }
-	}
-
-	if (busy) {
-	    klogctl(SYSLOG_ACTION_CONSOLE_ON, NULL, 0);
-	    busy = 0;
 	}
 
 	list_for_each_entry(c, &cons->node, node) {
@@ -1201,7 +1196,7 @@ static void ask_for_password(void)
     siginfo_t status = {};
     sigset_t set = {};
     struct console *c;
-    int wait = 0;
+    int wait;
     size_t len;
 
     if (!pwprompt && !*pwprompt)
@@ -1218,6 +1213,16 @@ static void ask_for_password(void)
 	len--;
     }
     set_signal(SIGCHLD, NULL, chld_handler);
+
+    wait = 200;
+    while (wait > 0 && (len = klogctl(SYSLOG_ACTION_SIZE_UNREAD, NULL, 0)) > 0) {
+	usleep(1000);
+        wait--;
+    }
+    wait = 0;
+
+    asking = 1;				/* Show only our question about password/passphrase */
+    klogctl(SYSLOG_ACTION_CONSOLE_OFF, NULL, 0);
 
     /* pwprompt */
     list_for_each_entry(c, &cons->node, node) {
@@ -1279,8 +1284,8 @@ static void ask_for_password(void)
 	    dup2(fdc, 1);
 	    close(fdc);
 
+	again:
 	    clear_input(0);
-
 #if defined(__s390__)
 	    if (major(c->dev) == 4 && minor(c->dev) >= 65)
 		len = asprintf(&message, BOLD RED "\n\r%s: " NORM, pwprompt);
@@ -1296,7 +1301,6 @@ static void ask_for_password(void)
 		warn("can not set password prompt");
 		_exit(1);
 	    }
-	    asking = 1;			/* Show only our question about password/passphrase */
 	    safeout(1, message, len, c->max_canon);
 	    free(message);
 
@@ -1315,7 +1319,9 @@ static void ask_for_password(void)
 
 	    tcsetattr(0, TCSANOW, &c->ctio);
 	    safeout(1, "\n", 1, c->max_canon);
-	    asking = 0;			/* Now throw out any collected messages if any */
+
+            if (*pwsize == 0)
+                goto again;
 
 	    if (*pwsize < 0)
 		warn("can not read password");
@@ -1332,18 +1338,21 @@ static void ask_for_password(void)
 	ret = waitid(P_ALL, 0, &status, WEXITED);
 
 	if (ret == 0)
-		break;
+	    break;
 
 	if (ret < 0) {
 	    if (errno == ECHILD)
 		break;
 	    if (errno == EINTR)
 		continue;
+	    error("can not wait on password asking process: %m");
+	    break;
 	}
-	asking = 0;			/* Now throw out any collected messages if any */
-	error("can not wait on password asking process");
 
     } while (1);
+
+    asking = 0;				/* Now throw out any collected messages if any */
+    klogctl(SYSLOG_ACTION_CONSOLE_ON, NULL, 0);
 
     list_for_each_entry(c, &cons->node, node) {
 	if (c->fd < 0)
@@ -1364,7 +1373,7 @@ static void ask_for_password(void)
     do {
 	int signum, ret;
 
-	if (!wait) {
+	if (wait <= 0) {
 	    asking = 0;			/* Now throw out any collected messages if any */
 	    break;
 	}

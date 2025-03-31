@@ -121,7 +121,7 @@ extern int epfd;
 extern int evmax;
 extern volatile sig_atomic_t signaled;
 extern volatile sig_atomic_t nsigsys;
-extern volatile int asking;
+extern volatile sig_atomic_t asking;
 
 extern void remember_arg0(volatile char *arg0);
 extern ssize_t safein (int fd, void *ptr, size_t s);

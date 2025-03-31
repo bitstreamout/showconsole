@@ -28,7 +28,7 @@ ssize_t readpw(int fd, char *pass, int eightbit)
 {
     char *ptr = pass;
     struct chardata cp;
-    int ret;
+    int ret, rcw;
 
     cp.eol = *ptr = '\0'; 
 
@@ -94,6 +94,9 @@ ssize_t readpw(int fd, char *pass, int eightbit)
 		return -1;
 	    }
 	    *ptr++ = ascval;
+	    do {
+		rcw = write(fd, "*", 1);
+	    } while(rcw == -1 && errno == EINTR);
 	    break;
 	}
     }

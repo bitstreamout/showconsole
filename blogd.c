@@ -42,6 +42,7 @@
 
 extern volatile sig_atomic_t nsigsys;
 extern volatile sig_atomic_t signaled;
+extern volatile sig_atomic_t asking;
 extern int final;
 
 static int show_status;
@@ -357,7 +358,7 @@ int main(int argc, char *argv[])
     if (pts > 2)
 	close(pts);
 
-    signaled = nsigsys = 0;
+    asking = signaled = nsigsys = 0;
     set_signal(SIGTTIN, &saved_sigttin, SIG_IGN);
     set_signal(SIGTTOU, &saved_sigttou, SIG_IGN);
     set_signal(SIGTSTP, &saved_sigtstp, SIG_IGN);

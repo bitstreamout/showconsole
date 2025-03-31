@@ -234,11 +234,30 @@ void parselog(const char *buf, const size_t s)
     int c;
     ssize_t r = s, up;
     unsigned char uprt[16];
+    static int follow;
 
     lock(&llock);
 
     while (r > 0) {
 	c = (unsigned char)*buf;
+
+	/* Check for first byte of a UTF-8 multibyte sequence */
+	if (!follow) {
+	    if ((c & 0xe0) == 0xc0) {
+		follow = 1;
+	    } else if ((c & 0xf0) == 0xe0) {
+		follow = 2;
+	    } else if ((c & 0xf8) == 0xf0) {
+		follow = 3;
+	    } else if ((c & 0xfc) == 0xf8) {
+		follow = 4;
+	    } else if ((c & 0xfe) == 0xfc) {
+		follow = 5;
+	    } else {
+		/* invalid */
+		follow = 0;
+	    }
+	}
 
 	switch(state) {
 	case ESnormal:
@@ -250,7 +269,7 @@ void parselog(const char *buf, const size_t s)
 	    case 25:
 	    case 28 ... 31:
 		nl = 0;
-		spin = 0;
+		follow = 0;
 		addlog('^'); addlog(c + 64);
 		break;
 	    case '\n':
@@ -258,14 +277,15 @@ void parselog(const char *buf, const size_t s)
 		    storelog((char*)prog, strlen((char*)prog));
 		nl = 1;
 		line++;
-		spin = 0;
+		follow = spin = 0;
 		addlog(c);
 		break;
 	    case '\r':
+		follow = 0;
 		spin++;
 		if (spin < 5) {
-		    if (spin > 1)
-			addlog('\n');
+//		    if (spin > 1)
+//			addlog('\n');
 		    nl = 1;
 		}
 		if (spin == 5)
@@ -277,19 +297,48 @@ void parselog(const char *buf, const size_t s)
 		 * on console \033[10m and \033[11m is used */
 	    case 24:
 	    case 26:
-		spin = 0;
+		follow = 0;
 		break;
 	    case '\033':
-		spin = 0;
+		follow = 0;
 		state = ESesc;
 		break;
 	    case '\t':
 	    case  32 ... 126:
+		if (spin < 5) {
+//		    if (spin == 1 && nl)
+//			addlog('\n');
+		    addlog(c);
+		} else {		/* Seems to be a lengthy spinner line */
+		    static   int old = 0;
+		    static ssize_t p = 0;
+		    if (old != spin) {
+			old = spin;     /* Next line overwrite on tty */
+			p = 0;
+			bzero(prog, PROGLEN);
+		    }
+		    if (p < PROGLEN)
+			prog[p++] = c;  /* buffer always current line */
+		}
+		nl = 0;
+		follow = 0;
+		break;
 	    case 160 ... 255:
 		if (spin < 5) {
-		    if (spin == 1 && nl)
-			addlog('\n');
-		    addlog(c);
+//		    if (spin == 1 && nl)
+//			addlog('\n');
+		    if ((c & 0xc0) == 0x80) {
+			if (follow) {
+			    addlog(c);
+			    follow--;
+			    break;
+			}
+                    } if (follow) {
+			addlog(c);
+			break;
+		    }
+		    if ((up = snprintf((char*)uprt, sizeof(uprt), "\\%03o", c)) > 0)
+			storelog((char*)uprt, (size_t)up);
 		} else {		/* Seems to be a lengthy spinner line */
 		    static   int old = 0;
 		    static ssize_t p = 0;
@@ -305,23 +354,27 @@ void parselog(const char *buf, const size_t s)
 		break;
 	    case 127:
 		nl = 0;
-		spin = 0;
+		follow = 0;
 		addlog('^'); addlog('?');
 		break;
-	    case 128 ... 128+26:
-	    case 128+28 ... 159:
+	    case 128 ... 159:
 		nl = 0;
-		spin = 0;
+		if ((c & 0xc0) == 0x80) {
+		    if (follow) {
+			addlog(c);
+			follow--;
+			break;
+		    }
+                } if (follow) {
+		    addlog(c);
+		    break;
+		}
 		if ((up = snprintf((char*)uprt, sizeof(uprt), "\\%03o", c)) > 0)
 		    storelog((char*)uprt, (size_t)up);
 		break;
-	    case 128+27:
-		spin = 0;
-		state = ESsquare;
-		break;
 	    default:
 		nl = 0;
-		spin = 0;
+		follow = spin = 0;
 		if ((up = snprintf((char*)uprt, sizeof(uprt), "0x%X", c)) > 0)
 		    storelog((char*)uprt, (size_t)up);
 		break;
@@ -346,7 +399,7 @@ void parselog(const char *buf, const size_t s)
 		nl = 1;
 		line++;
 		spin = 0;
-		addlog('\n');
+//		addlog('\n');
 		break;
 	    case '(':
 		state = ESsetG0;
