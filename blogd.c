@@ -416,7 +416,7 @@ int main(int argc, char *argv[])
 	} else {
 		ioctl(fd, KDSETMODE, KD_TEXT);		/* Enforce text mode */
 
-		c->otio.c_iflag |= (ICRNL | IGNBRK);
+		c->otio.c_iflag |= (ICRNL | IXON);
 		c->otio.c_iflag &= ~(INLCR | IGNCR | BRKINT);
 		c->otio.c_oflag |= (ONLCR | OPOST);
 		c->otio.c_oflag &= ~(OCRNL | ONLRET | OLCUC);

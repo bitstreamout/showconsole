@@ -410,7 +410,10 @@ void safeIO (void)
 
 	    ret = lstat("/var/log", &st);
 	    if (ret < 0) {
-		warn("can not get file status of /var/log");
+		if (errno != ENOENT)
+		    warn("can not get file status of /var/log: %m");
+		else
+		    atboot = 1;
 		goto skip;
 	    }
 	    if ((st.st_mode & S_IFMT) == S_IFLNK) {
@@ -1190,6 +1193,7 @@ job:			/* Do not close connection for reply */
 /*
  * Do handle the connection in data
  */
+char* currenttty;
 static void ask_for_password(void)
 {
     struct timespec timeout = {0, 50000000};
@@ -1256,6 +1260,7 @@ static void ask_for_password(void)
 	    dup2(1, 2);
 	    dup2(c->fd, 0);
 	    dup2(c->fd, 1);
+	    currenttty = c->tty;
 
 	    list_for_each_entry(d, &cons->node, node)
 		if (d->fd >= 0) {

@@ -218,16 +218,13 @@ enum {	ESnormal, ESesc, ESsquare, ESgetpars, ESgotpars, ESfunckey,
 	ESpalette };
 #define NPAR 16
 static unsigned int state = ESnormal;
-static int npar, nl;
-static unsigned long int line;
+static int npar, nl, cr;
 
 /*
  * Workaround for spinner of fsck/e2fsck
  * Uses ascii lines ending with '\r' only
  */
 static int spin;
-#define PROGLEN 192
-static unsigned char prog[PROGLEN];
 
 void parselog(const char *buf, const size_t s)
 {
@@ -259,6 +256,8 @@ void parselog(const char *buf, const size_t s)
 	    }
 	}
 
+	nl = 0;
+
 	switch(state) {
 	case ESnormal:
 	default:
@@ -268,28 +267,26 @@ void parselog(const char *buf, const size_t s)
 	    case 16 ... 23:
 	    case 25:
 	    case 28 ... 31:
-		nl = 0;
 		follow = 0;
 		addlog('^'); addlog(c + 64);
 		break;
 	    case '\n':
-		if (spin > 4)	/* last spinner line */
-		    storelog((char*)prog, strlen((char*)prog));
 		nl = 1;
-		line++;
-		follow = spin = 0;
+		follow = 0;
+		cr = spin = 0;
 		addlog(c);
 		break;
 	    case '\r':
 		follow = 0;
-		spin++;
-		if (spin < 5) {
-//		    if (spin > 1)
-//			addlog('\n');
-		    nl = 1;
+		if (cr++ > 0)
+		{
+		    spin++;
+#if 0
+		    storelog(">spin", 5);
+		    addlog(48+spin);
+		    addlog('<');
+#endif
 		}
-		if (spin == 5)
-		    storelog("\n<progress bar skipped>\n", 24);
 		break;
 	    case 14:
 	    case 15:
@@ -305,67 +302,27 @@ void parselog(const char *buf, const size_t s)
 		break;
 	    case '\t':
 	    case  32 ... 126:
-		if (spin < 5) {
-//		    if (spin == 1 && nl)
-//			addlog('\n');
-		    addlog(c);
-		} else {		/* Seems to be a lengthy spinner line */
-		    static   int old = 0;
-		    static ssize_t p = 0;
-		    if (old != spin) {
-			old = spin;     /* Next line overwrite on tty */
-			p = 0;
-			bzero(prog, PROGLEN);
-		    }
-		    if (p < PROGLEN)
-			prog[p++] = c;  /* buffer always current line */
-		}
-		nl = 0;
+		addlog(c);
 		follow = 0;
 		break;
 	    case 160 ... 255:
-		if (spin < 5) {
-//		    if (spin == 1 && nl)
-//			addlog('\n');
-		    if ((c & 0xc0) == 0x80) {
-			if (follow) {
-			    addlog(c);
-			    follow--;
-			    break;
-			}
-                    } if (follow) {
-			addlog(c);
-			break;
-		    }
-		    if ((up = snprintf((char*)uprt, sizeof(uprt), "\\%03o", c)) > 0)
-			storelog((char*)uprt, (size_t)up);
-		} else {		/* Seems to be a lengthy spinner line */
-		    static   int old = 0;
-		    static ssize_t p = 0;
-		    if (old != spin) {
-			old = spin;	/* Next line overwrite on tty */
-			p = 0;
-			bzero(prog, PROGLEN);
-		    }
-		    if (p < PROGLEN)
-			prog[p++] = c;	/* buffer always current line */
+		if (follow) {
+		    if ((c & 0xc0) == 0x80)
+			follow--;
+		    addlog(c);
+		    break;
 		}
-		nl = 0;
+		if ((up = snprintf((char*)uprt, sizeof(uprt), "\\%03o", c)) > 0)
+		    storelog((char*)uprt, (size_t)up);
 		break;
 	    case 127:
-		nl = 0;
 		follow = 0;
 		addlog('^'); addlog('?');
 		break;
 	    case 128 ... 159:
-		nl = 0;
-		if ((c & 0xc0) == 0x80) {
-		    if (follow) {
-			addlog(c);
+		if (follow) {
+		    if ((c & 0xc0) == 0x80)
 			follow--;
-			break;
-		    }
-                } if (follow) {
 		    addlog(c);
 		    break;
 		}
@@ -373,14 +330,15 @@ void parselog(const char *buf, const size_t s)
 		    storelog((char*)uprt, (size_t)up);
 		break;
 	    default:
-		nl = 0;
-		follow = spin = 0;
+		cr = 0;
+		follow = 0;
 		if ((up = snprintf((char*)uprt, sizeof(uprt), "0x%X", c)) > 0)
 		    storelog((char*)uprt, (size_t)up);
 		break;
 	    }
 	    break;
 	case ESesc:
+	    follow = 0;
 	    state = ESnormal;
 	    switch((unsigned char)c) {
 	    case '[':
@@ -394,12 +352,8 @@ void parselog(const char *buf, const size_t s)
 		break;
 	    case 'E':
 	    case 'D':
-		if (spin > 4)	/* last spinner line */
-		    storelog((char*)prog, strlen((char*)prog));
+		addlog('\n');
 		nl = 1;
-		line++;
-		spin = 0;
-//		addlog('\n');
 		break;
 	    case '(':
 		state = ESsetG0;
@@ -420,6 +374,7 @@ void parselog(const char *buf, const size_t s)
 	    }
 	    break;
 	case ESnonstd:
+	    follow = 0;
 	    if        (c == 'P') {
 		npar = 0;
 		state = ESpalette;
@@ -429,6 +384,7 @@ void parselog(const char *buf, const size_t s)
 		state = ESnormal;
 	    break;
 	case ESpalette:
+	    follow = 0;
 	    if ((c>='0'&&c<='9') || (c>='A'&&c<='F') || (c>='a'&&c<='f')) {
 		npar++;
 		if (npar==7)
@@ -437,15 +393,21 @@ void parselog(const char *buf, const size_t s)
 		state = ESnormal;
 	    break;
 	case ESsquare:
+	    follow = 0;
 	    npar = 0;
 	    state = ESgetpars;
 	    if (c == '[') {
 		state = ESfunckey;
 		break;
 	    }
+#if 0
+	    if (c == 'K')
+		storelog(" el ", 4);
+#endif
 	    if (c == '?')
 		break;
 	case ESgetpars:
+	    follow = 0;
 	    if (c==';' && npar<NPAR-1) {
 		npar++;
 		break;
@@ -454,19 +416,23 @@ void parselog(const char *buf, const size_t s)
 	    } else
 		state = ESgotpars;
 	case ESgotpars:
+	    follow = 0;
 	    state = ESnormal;
 	    break;
 	case ESpercent:
+	    follow = 0;
 	    state = ESnormal;
 	    break;
 	case ESfunckey:
 	case EShash:
 	case ESsetG0:
 	case ESsetG1:
+	    follow = 0;
 	    state = ESnormal;
 	    break;
 #ifdef BLOGD_EXT
 	case ESignore:				/* Boot log extension */
+	    follow = 0;
 	    state = ESesc;
 	    {
 		unsigned char echo[64];

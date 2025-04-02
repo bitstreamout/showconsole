@@ -24,16 +24,26 @@ struct chardata {
     int capslock;	/* upper case without lower case */
 };
 
+static inline void wput(int fd, char c)
+{
+    int ret;
+    do {
+	ret = write(fd, &c, 1);
+    } while (ret < 0 && errno == EINTR);
+}
+
+extern char* currenttty;
 ssize_t readpw(int fd, char *pass, int eightbit)
 {
     char *ptr = pass;
     struct chardata cp;
-    int ret, rcw;
+    int ret;
 
     cp.eol = *ptr = '\0'; 
 
     while (cp.eol == '\0') {
 	char ascval, c;
+	errno = 0;
 
 	ret = read(fd, &c, 1);
 	if (ret < 0) {
@@ -42,14 +52,12 @@ ssize_t readpw(int fd, char *pass, int eightbit)
 		continue;
 	    }
 	    switch (errno) {
-	    case 0:
 	    case EIO:
-	    case ESRCH:
-	    case EINVAL:
-	    case ENOENT:
-		break;
+		/* Not as in sulogin of util-linux we do nothing here */
 	    default:
-		warn("cannot read passphrase");
+		warn("cannot read passphrase on %s: %m", currenttty);
+		break;
+	    case 0:
 		break;
 	    }
 	    return -1;
@@ -78,13 +86,17 @@ ssize_t readpw(int fd, char *pass, int eightbit)
 	case BS:
 	case CERASE:
 	    cp.erase = ascval;
-	    if (ptr > pass)
+	    if (ptr > pass) {
 		ptr--;
+		wput(fd, BS);
+	    }
 	    break;
 	case CKILL:
 	    cp.kill = ascval;
-	    while (ptr > pass)
+	    while (ptr > pass) {
 		ptr--;
+		wput(fd, BS);
+	    }
 	    break;
 	case CEOF:
 	    return 0;
@@ -94,9 +106,7 @@ ssize_t readpw(int fd, char *pass, int eightbit)
 		return -1;
 	    }
 	    *ptr++ = ascval;
-	    do {
-		rcw = write(fd, "*", 1);
-	    } while(rcw == -1 && errno == EINTR);
+	    wput(fd, '*');
 	    break;
 	}
     }

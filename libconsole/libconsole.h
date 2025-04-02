@@ -234,17 +234,18 @@ static inline void reset_virtual_console(struct termios *tp, int flags)
     /* Sane setting, allow eight bit characters, no carriage return delay
      * the same result as `stty sane cr0 pass8'
      */
-    tp->c_iflag |=  (BRKINT | ICRNL | IMAXBEL);
-    tp->c_iflag &= ~(IGNBRK | INLCR | IGNCR | IXOFF | IUCLC | IXANY | ISTRIP);
+    tp->c_iflag |=  (ICRNL | IXON);
+    tp->c_iflag &= ~(IGNBRK | BRKINT | IGNPAR | PARMRK | INPCK | ISTRIP| \
+		     INLCR | IGNCR | IXOFF | IUCLC | IXANY | IMAXBEL);
     tp->c_oflag |=  (OPOST | ONLCR | NL0 | CR0 | TAB0 | BS0 | VT0 | FF0);
     tp->c_oflag &= ~(OLCUC | OCRNL | ONOCR | ONLRET | OFILL | \
-    		    NLDLY|CRDLY|TABDLY|BSDLY|VTDLY|FFDLY);
-    tp->c_lflag |=  (ISIG | ICANON | IEXTEN | ECHO|ECHOE|ECHOK|ECHOKE|ECHOCTL);
-    tp->c_lflag &= ~(ECHONL|ECHOPRT | NOFLSH | TOSTOP);
+    		     NLDLY|CRDLY|TABDLY|BSDLY|VTDLY|FFDLY);
+    tp->c_lflag |=  (ISIG | ICANON | IEXTEN | ECHO|ECHOE|ECHOK|ECHOKE);
+    tp->c_lflag &= ~(ECHONL|ECHOPRT | NOFLSH | TOSTOP | FLUSHO | EXTPROC | ECHOCTL);
 
     if ((flags & UL_TTY_KEEPCFLAGS) == 0) {
 	tp->c_cflag |=  (CREAD | CS8 | HUPCL);
-	tp->c_cflag &= ~(PARODD | PARENB);
+	tp->c_cflag &= ~(PARODD | PARENB | CMSPAR | CLOCAL | CRTSCTS);
     }
 #ifdef OFDEL
     tp->c_oflag &= ~OFDEL;
