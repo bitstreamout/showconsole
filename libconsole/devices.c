@@ -36,9 +36,18 @@ char *charname(const char *str)
 	error("can not scan %s", str);
     dev = makedev(maj, min);
 
-    dir = opendir("/dev");
-    if (!dir)
-	 error("can not open /dev");
+#if defined(__s390__)
+    if (maj == 227) {
+	dir = opendir("/dev/3270");
+	if (!dir)
+	    error("can not open /dev/3270");
+    } else
+#endif
+    {
+	dir = opendir("/dev");
+	if (!dir)
+	    error("can not open /dev");
+    }
 
     fd = dirfd(dir);
     rewinddir(dir);

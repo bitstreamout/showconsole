@@ -691,7 +691,7 @@ void getconsoles(struct console **cons, int io)
 	    if (strchr(fbuf, con_flags[n].name))
 		flags |= con_flags[n].flag;
 
-	ret = asprintf(&tty, "/dev/char/%s", dev);
+	ret = asprintf(&tty, "/sys/dev/char/%s", dev);
 	if (ret < 0)
 	    error("can not allocate string");
 
@@ -700,10 +700,39 @@ void getconsoles(struct console **cons, int io)
 	if (!tty) {
 	    if (errno != ENOENT && errno != ENOTDIR)
 		error("can not determine real path of %s", tmp);
-
+     fail:
 	    tty = charname(dev);
 	    if (!tty)
 		error("can not determine real path of %s", tmp);
+	} else {
+	    FILE *ue;
+	    size_t len;
+	    ssize_t nread;
+	    char *line, *uevent;
+
+	    ret = asprintf(&uevent, "%s/uevent", tty);
+	    if (ret < 0)
+	        error("can not allocate string");
+
+	    ue = fopen(uevent, "r");
+	    if (!ue)
+		goto fail;
+
+	    line = NULL;
+	    while ((nread = getline(&line, &len, ue)) != -1)  {
+		line[nread-1] = '\0';
+		if (strncmp(line, "DEVNAME=", 8) == 0) {
+		    ret = asprintf(&tty, "/dev/%s", line+8);
+		    if (ret < 0)
+		        error("can not allocate string");
+		    break;
+		}
+	    }
+	    free(line);
+	    fclose(ue);
+
+	    if (!tty)
+		goto fail;
 	}
 	free(tmp);
 
