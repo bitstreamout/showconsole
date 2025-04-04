@@ -675,9 +675,11 @@ void getconsoles(struct console **cons, int io)
 
     while ((items = fscanf(fc, "%*s %*s (%[^)]) %[0-9:]", &fbuf[0], &dev[0]))
 	   != EOF) {
-	char *tmp;
-	int flags, n, maj, min;
-	int ret;
+	FILE *ue;
+	char *tmp, *line, *uevent;
+	size_t len;
+	ssize_t nread;
+	int flags, n, maj, min, ret;
 
 	/* Ignore consoles without tty binding. */
 	if (items != 2)
@@ -700,40 +702,37 @@ void getconsoles(struct console **cons, int io)
 	if (!tty) {
 	    if (errno != ENOENT && errno != ENOTDIR)
 		error("can not determine real path of %s", tmp);
-     fail:
-	    tty = charname(dev);
-	    if (!tty)
-		error("can not determine real path of %s", tmp);
-	} else {
-	    FILE *ue;
-	    size_t len;
-	    ssize_t nread;
-	    char *line, *uevent;
-
-	    ret = asprintf(&uevent, "%s/uevent", tty);
-	    if (ret < 0)
-	        error("can not allocate string");
-
-	    ue = fopen(uevent, "r");
-	    if (!ue)
-		goto fail;
-
-	    line = NULL;
-	    while ((nread = getline(&line, &len, ue)) != -1)  {
-		line[nread-1] = '\0';
-		if (strncmp(line, "DEVNAME=", 8) == 0) {
-		    ret = asprintf(&tty, "/dev/%s", line+8);
-		    if (ret < 0)
-		        error("can not allocate string");
-		    break;
-		}
-	    }
-	    free(line);
-	    fclose(ue);
-
-	    if (!tty)
-		goto fail;
+	    goto fail;
 	}
+
+	ret = asprintf(&uevent, "%s/uevent", tty);
+	if (ret < 0)
+	    error("can not allocate string");
+
+	ue = fopen(uevent, "re");
+	if (!ue)
+		goto fail;
+
+	line = NULL;
+	while ((nread = getline(&line, &len, ue)) != -1)  {
+	    char * nl = strrchr(line, '\n');
+	    if (nl)
+		*nl = '\0';
+	    if (strncmp(line, "DEVNAME=", 8) == 0) {
+		ret = asprintf(&tty, "/dev/%s", line+8);
+		if (ret < 0)
+		    error("can not allocate string");
+		break;
+	    }
+	}
+	free(line);
+	fclose(ue);
+
+    fail:
+	if (!tty)
+	    tty = charname(dev);
+	if (!tty)
+	    error("can not determine real path of %s", tmp);
 	free(tmp);
 
 	if (sscanf(dev, "%u:%u", &maj, &min) != 2)
@@ -748,7 +747,7 @@ void getconsoles(struct console **cons, int io)
     if (!c)
 	goto err;
 
-     *cons = c;
+    *cons = c;
     return;
 err:
     tty = strdup("/dev/console");
@@ -757,6 +756,7 @@ err:
 
     if (!consalloc(&c, tty, CON_CONSDEV, makedev(TTYAUX_MAJOR, 1), io))
 	error("/dev/console is not a valid fallback\n");
+    free(tty);
 
     *cons = c;
 }
