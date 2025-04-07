@@ -11,75 +11,59 @@
 
 #include <dirent.h>
 #include <fcntl.h>
+#include <ftw.h>
 #include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <sys/sysmacros.h>
 #include "libconsole.h"
 
+static dev_t dev;
+static char *name;
+static int find_chardevice(const char *fpath, const struct stat *st,
+    int typeflag, struct FTW *ftwbuf)
+{
+    if (typeflag == FTW_NS)
+	return FTW_CONTINUE;
+    if (typeflag == FTW_D)
+	return FTW_CONTINUE;
+    if (typeflag == FTW_SLN)
+	return FTW_CONTINUE;
+    if (typeflag == FTW_SL)
+	return FTW_CONTINUE;
+    if (typeflag == FTW_DNR)
+	return FTW_CONTINUE;
+
+    if (!S_ISCHR(st->st_mode))
+	return FTW_CONTINUE;
+    if (dev != st->st_rdev)
+	return FTW_CONTINUE;
+
+    name = strdup(fpath);
+    if (!name)
+	error("can not allocate string");
+
+    return FTW_STOP;
+}
+
 char *charname(const char *str)
 {
-    DIR *dir;
-    char *name;
-    struct dirent *d;
     unsigned int maj, min;
-    int fd, ret = 0;
-    dev_t dev; 
+    int ret = 0;
 
     if (!str || !*str)
 	error("no device provided");
 
     ret = sscanf(str, "%u:%u", &maj, &min);
     if (ret != 2)
-	error("can not scan %s", str);
+	error("can not scan %s: %m", str);
     dev = makedev(maj, min);
 
-#if defined(__s390__)
-    if (maj == 227) {
-	dir = opendir("/dev/3270");
-	if (!dir)
-	    error("can not open /dev/3270");
-    } else
-#endif
-    {
-	dir = opendir("/dev");
-	if (!dir)
-	    error("can not open /dev");
-    }
-
-    fd = dirfd(dir);
-    rewinddir(dir);
-
-    name = NULL;
-    while ((d = readdir(dir))) {
-	    struct stat st;
-	    char path[PATH_MAX+1];
-    
-	    if (*d->d_name == '.')
-		continue;
-
-	    if (fstatat(fd, d->d_name, &st, 0) < 0)
-		continue;
-
-	    if (!S_ISCHR(st.st_mode))
-		continue;
-
-	    if (dev != st.st_rdev)
-		continue;
-
-	    if ((size_t)snprintf(path, sizeof(path), "/dev/%s", d->d_name) >= sizeof(path)) {
-		errno = EOVERFLOW;
-		error("can not handle %s", d->d_name);
-		break;
-	    }
-
-	    name = realpath(path, NULL);
-	    break;
-    }
-
-    closedir(dir);
+    if (nftw("/dev", find_chardevice, 10, FTW_PHYS) < 0)
+	error("can not follow tree below /dev: %m");
 
     return name;
 }
