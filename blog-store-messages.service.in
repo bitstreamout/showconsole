@@ -1,15 +1,12 @@
 [Unit]
 Description=Tell blogd about writable boot log
 DefaultDependencies=no
-RequiresMountsFor=@@BOOT_LOGFILE@@
-Conflicts=shutdown.target
-After=systemd-remount-fs.service systemd-tmpfiles-setup.service auditd.service
-Before=sysinit.target shutdown.target
+After=local-fs.target
+Before=sysinit.target
 ConditionPathExists=!/etc/initrd-release
-ConditionPathIsReadWrite=/var/log
 
 [Service]
 Type=oneshot
 TimeoutSec=20
 RemainAfterExit=yes
-ExecStart=/sbin/blogctl ready
+ExecStart=-/sbin/blogctl ready

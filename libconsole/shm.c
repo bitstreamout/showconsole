@@ -71,33 +71,36 @@ static void _locateshm(void)
     endmntent(mounts);
 }
 
-void* shm_malloc(size_t size, int flags)
+void* shm_malloc(size_t size)
 {
-    char *template;
     void *area;
+    char *template;
     int shmfd = -1;
-    int ret;
 
-    if (!devshm)
-	error("can not generate shared memory area");
+    if (devshm) {
+	int ret;
 
-    ret = asprintf(&template, "%s/blogd-XXXXXX", devshm);
-    if (ret < 0)
-	error("can not allocate string for shared memory area");
+	ret = asprintf(&template, "%s/blogd-XXXXXX", devshm);
+	if (ret < 0)
+	    error("can not allocate string for shared memory area");
 
-    shmfd = mkstemp(template);
-    if (ret < shmfd)
-	error("can not generate shared memory area");
+	shmfd = mkstemp(template);
+	if (ret < shmfd)
+	    error("can not generate shared memory area");
 
-    ret = ftruncate(shmfd, size);
-    if (ret < 0)
-	error("can not allocate shared memory object");
+	ret = ftruncate(shmfd, size);
+	if (ret < 0)
+	    error("can not allocate shared memory object");
+    }
 
-    area = mmap(NULL, size, PROT_READ|PROT_WRITE, flags, shmfd, 0);
+    area = mmap(NULL, size, PROT_READ|PROT_WRITE, MAP_LOCKED|MAP_SHARED|MAP_ANONYMOUS, shmfd, 0);
     if (area == MAP_FAILED)
 	 error("can not map shared memory object into memory");
 
-    /* shm_ */ unlink(template);
-    free(template);
+    if (devshm) {
+	/* shm_ */ unlink(template);
+	free(template);
+    }
+
     return area;
 }

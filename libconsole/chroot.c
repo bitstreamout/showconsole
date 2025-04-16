@@ -14,10 +14,18 @@
 
 void new_root(const char *root)
 {
-    int ret;
-    ret = chdir(root);
-    if (ret < 0)
-	error("can change to working directory %s", root);
+    int ret, c = 0;
+    do {
+	if (c++ > 20) {
+	    error("can change to working directory %s", root);
+	    return;
+	}
+	ret = chdir(root);
+	if (ret < 0 && errno != ENOENT && errno != EIO)
+	    error("can change to working directory %s", root);
+	usleep(50000);
+
+    } while (errno == ENOENT || errno == EIO);
     ret = chroot(".");
     if (ret < 0)
 	error("can change root directory");

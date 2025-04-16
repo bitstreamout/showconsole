@@ -1,0 +1,15 @@
+[Unit]
+Description=Start Blogd at System Halt
+DefaultDependencies=no
+After=blog.service
+Before=systemd-halt.service
+Before=halt.target
+RefuseManualStart=true
+ConditionKernelCommandLine=!blog.enable=0
+ConditionVirtualization=!container
+
+[Service]
+Type=forking
+SendSIGKILL=no
+RemainAfterExit=yes
+ExecStart=/sbin/blogd -f

@@ -5,20 +5,26 @@ check() {
 }
 
 depends() {
-    return 0
+    echo systemd-initrd systemd-udevd
 }
 
 install() {
     inst_multiple blogd blogctl
     inst_multiple -o \
 	$systemdsystemunitdir/blog.service \
-	$systemdsystemunitdir/blog-final.service \
+	$systemdsystemunitdir/blog-halt.service \
+	$systemdsystemunitdir/blog-kexec.service \
+	$systemdsystemunitdir/blog-poweroff.service \
+	$systemdsystemunitdir/blog-reboot.service \
 	$systemdsystemunitdir/blog-quit.service \
+	$systemdsystemunitdir/blog-store-messages.service \
+	$systemdsystemunitdir/blog-switch-initramfs.service \
 	$systemdsystemunitdir/blog-switch-root.service \
+	$systemdsystemunitdir/blog-umount.service \
 	$systemdsystemunitdir/systemd-ask-password-blog.path \
 	$systemdsystemunitdir/systemd-ask-password-blog.service \
 	$systemdsystemunitdir/systemd-vconsole-setup.service
-    for t in default sysinit basic local-fs-pre rescue shutdown emergency initrd-switch-root
+    for t in sysinit rescue shutdown emergency initrd-switch-root halt kexec poweroff reboot
     do
 	test  -d "${initdir}${systemdsystemunitdir}/${t}.target.wants" && continue
 	mkdir -p "${initdir}${systemdsystemunitdir}/${t}.target.wants"
@@ -28,17 +34,14 @@ install() {
 	ln_r "${systemdsystemunitdir}/${s}" "${systemdsystemunitdir}/rescue.target.wants/${s}"
 	ln_r "${systemdsystemunitdir}/${s}" "${systemdsystemunitdir}/emergency.target.wants/${s}"
     done
-    for s in blog.service
-    do
-	ln_r "${systemdsystemunitdir}/${s}" "${systemdsystemunitdir}/basic.target.wants/${s}"
-    done
-    for s in systemd-ask-password-blog.path
+    for s in blog.service systemd-ask-password-blog.path
     do
 	ln_r "${systemdsystemunitdir}/${s}" "${systemdsystemunitdir}/sysinit.target.wants/${s}"
     done
-    for s in blog-final.service
+    for u in reboot poweroff kexec halt
     do
-	ln_r "${systemdsystemunitdir}/${s}" "${systemdsystemunitdir}/shutdown.target.wants/${s}"
+	ln_r "${systemdsystemunitdir}/blog-${u}.service" "${systemdsystemunitdir}/${u}.target.wants/blog-${u}.service"
+	ln_r "${systemdsystemunitdir}/blog-switch-initramfs.service" "${systemdsystemunitdir}/${u}.target.wants/blog-switch-initramfs"
     done
     for t in systemd-ask-password-blog.service
     do

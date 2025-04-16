@@ -2,16 +2,16 @@
 Description=Start Blogd at System Bootup
 DefaultDependencies=no
 Wants=systemd-ask-password-blog.path systemd-vconsole-setup.service
-After=systemd-vconsole-setup.service
+After=systemd-vconsole-setup.service systemd-udev-trigger.service systemd-udevd.service
 Before=systemd-ask-password-blog.service
 ConditionKernelCommandLine=!blog.enable=0
-Wants=systemd-ask-password-blog.path
-Before=systemd-ask-password-blog.service
-Before=sysinit.target
+ConditionVirtualization=!container
+IgnoreOnIsolate=true
 RefuseManualStart=true
 
 [Service]
 Type=forking
-SendSIGKILL=no
 RemainAfterExit=yes
+KillMode=mixed
+SendSIGKILL=no
 ExecStart=/sbin/blogd

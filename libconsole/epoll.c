@@ -95,6 +95,8 @@ void epoll_delete(int fd)
 
     list_for_each_entry_safe(ep, n, &lpolls, watch) {
 	if (ep->fd == fd) {
+	    if (isatty(fd))
+		tcdrain(fd);
 	    delete(&ep->watch);
 	    free(ep);
 	    break;
@@ -116,6 +118,8 @@ void (*epoll_handle(void *ptr, int *fd))(int)
 	if (ep == ptr) {
 	    handle = ep->handle;
 	    *fd = ep->fd;
+	    if (isatty(ep->fd))
+		tcdrain(ep->fd);
 	    break;
 	}
     }
@@ -128,6 +132,9 @@ void epoll_close_fd(void)
 {
     struct epolls *ep;
 
-    list_for_each_entry(ep, &lpolls, watch)
+    list_for_each_entry(ep, &lpolls, watch) {
+	if (isatty(ep->fd))
+	    tcdrain(ep->fd);
 	close(ep->fd);
+    }
 }

@@ -4,7 +4,7 @@ DefaultDependencies=no
 # dracut-shutdown.service restores the initramfs when it is _stopped_
 # use Conflicts to make sure its ExecStop has run before we do
 Conflicts=dracut-shutdown.service
-After=plymouth-final.service blog-umount.service dracut-shutdown.service mkinitcpio-generate-shutdown-ramfs.service
+After=blog-halt.service blog-reboot.service blog-poweroff.service blog-kexec.service dracut-shutdown.service mkinitcpio-generate-shutdown-ramfs.service
 ConditionPathExists=|/run/initramfs/bin/sh
 ConditionPathExists=|/run/initramfs/shutdown
 

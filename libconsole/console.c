@@ -586,13 +586,13 @@ static int consinitIO(struct console *newc)
 {
     int tflags;
 
-    if ((newc->fd = open(newc->tty, O_WRONLY|O_NONBLOCK|O_NOCTTY)) < 0) {
+    newc->fd = open_tty(newc->tty, O_WRONLY|O_NONBLOCK|O_NOCTTY);
+    if (newc->fd < 0) {
 	if (errno == EACCES)
 	    error("can not open %s", newc->tty);
 	warn("can not open %s", newc->tty);
 	return 0;
     }
-
     newc->tlock = 0;
     newc->max_canon = _POSIX_MAX_CANON;
     memset(&newc->ltio, 0, sizeof(newc->ltio));
@@ -660,7 +660,12 @@ void getconsoles(struct console **cons, int io)
     char fbuf[16], dev[64];
     char *tty = NULL;
     FILE *fc;
+#ifdef TIOCGDEV
+    unsigned int devnum;
+    int fd;
+#endif
     int items;
+
 
     if (!cons)
 	error("error: console pointer empty");
@@ -675,10 +680,7 @@ void getconsoles(struct console **cons, int io)
 
     while ((items = fscanf(fc, "%*s %*s (%[^)]) %[0-9:]", &fbuf[0], &dev[0]))
 	   != EOF) {
-	FILE *ue;
-	char *tmp, *line, *uevent;
-	size_t len;
-	ssize_t nread;
+	char *tmp;
 	int flags, n, maj, min, ret;
 
 	/* Ignore consoles without tty binding. */
@@ -693,50 +695,23 @@ void getconsoles(struct console **cons, int io)
 	    if (strchr(fbuf, con_flags[n].name))
 		flags |= con_flags[n].flag;
 
-	ret = asprintf(&tty, "/sys/dev/char/%s", dev);
+	ret = asprintf(&tmp, "/dev/char/%s", dev);
 	if (ret < 0)
 	    error("can not allocate string");
 
-	tmp = tty;
-	tty = realpath(tty, NULL);
+	tty = realpath(tmp, NULL);
 	if (!tty) {
 	    if (errno != ENOENT && errno != ENOTDIR)
-		error("can not determine real path of %s", tmp);
-	    goto fail;
-	}
+		error("can not determine real path of %s: %m", tmp);
 
-	ret = asprintf(&uevent, "%s/uevent", tty);
-	if (ret < 0)
-	    error("can not allocate string");
-
-	ue = fopen(uevent, "re");
-	if (!ue)
-		goto fail;
-
-	line = NULL;
-	while ((nread = getline(&line, &len, ue)) != -1)  {
-	    char * nl = strrchr(line, '\n');
-	    if (nl)
-		*nl = '\0';
-	    if (strncmp(line, "DEVNAME=", 8) == 0) {
-		ret = asprintf(&tty, "/dev/%s", line+8);
-		if (ret < 0)
-		    error("can not allocate string");
-		break;
-	    }
-	}
-	free(line);
-	fclose(ue);
-
-    fail:
-	if (!tty)
 	    tty = charname(dev);
-	if (!tty)
-	    error("can not determine real path of %s", tmp);
+	    if (!tty)
+		error("can not determine real path of %s: %m", tmp);
+	}
 	free(tmp);
 
 	if (sscanf(dev, "%u:%u", &maj, &min) != 2)
-	    error("can not determine device numbers for %s", tty);
+	    error("can not determine device numbers for %s: %m", tty);
 
 	consalloc(&c, tty, flags, makedev(maj, min), io);
 	free(tty);
@@ -750,6 +725,25 @@ void getconsoles(struct console **cons, int io)
     *cons = c;
     return;
 err:
+#ifdef TIOCGDEV
+    fd = open("/dev/console", O_RDONLY|O_NONBLOCK|O_NOCTTY|O_CLOEXEC);
+    if (fd >= 0) {
+	if (ioctl (0, TIOCGDEV, &devnum) < 0)
+	    goto fallback;
+	close(fd);
+	tty = chardev((dev_t)devnum);
+	if (!tty)
+	    goto fallback;
+
+	if (!consalloc(&c, tty, CON_CONSDEV, (dev_t)devnum, io))
+	    error("/dev/console is not a valid fallback\n");
+	free(tty);
+
+	*cons = c;
+	return;
+    }
+fallback:
+#endif
     tty = strdup("/dev/console");
     if (!tty)
 	error("can not allocate string");
@@ -1001,12 +995,11 @@ static void socket_handler(int fd)
     case MAGIC_ASK_PWD:
 
 	if (!password) {
-	    password = (char*)shm_malloc(MAX_PASSLEN, MAP_LOCKED|MAP_ANONYMOUS|MAP_SHARED);
-	    if (!password)
+	    void *tmp = shm_malloc(MAX_PASSLEN+sizeof(int32_t));
+	    if (!tmp)
 		error("can not allocate string for password");
-	    pwsize = (int32_t*)mmap(NULL, sizeof(int32_t), PROT_READ|PROT_WRITE, MAP_LOCKED|MAP_ANONYMOUS|MAP_SHARED, -1, 0);
-	    if (pwsize == MAP_FAILED)
-		error("can not allocate integer for password length");
+	    password = (char *)tmp;
+	    pwsize = (int32_t *)(tmp+MAX_PASSLEN);
 	}
 	password[0] = '\0';
 	pwprompt = strdup(arg);
@@ -1293,6 +1286,7 @@ static void ask_for_password(void)
 
 	    list_for_each_entry(d, &cons->node, node)
 		if (d->fd >= 0) {
+		    (void)tcdrain(d->fd);
 		    close(d->fd);
 		    d->fd = -1;
 		}
@@ -1320,8 +1314,9 @@ static void ask_for_password(void)
 
 	again:
 	    clear_input(0);
-#if defined(__s390__)
-	    if (major(c->dev) == 4 && minor(c->dev) >= 65)
+#if defined(__s390__) || defined(__s390x__)
+	    if ((major(c->dev) == 4 && minor(c->dev) >= 65) ||
+		(major(c->dev) == 227 && minor(c->dev) >= 1))
 		len = asprintf(&message, BOLD RED "\n\r%s: " NORM, pwprompt);
 	    else
 		len = asprintf(&message, "\n\r>> %s: ", pwprompt);
@@ -1340,8 +1335,8 @@ static void ask_for_password(void)
 
 	    /* We read byte for byte */
 	    newtio = c->ctio;
-	    newtio.c_iflag &= ~(IUCLC|IXON|IXOFF|IXANY);
-	    newtio.c_lflag &= ~(ECHO|ECHOE|ECHOK|ECHONL|TOSTOP|ICANON|ISIG);
+	    newtio.c_lflag &= ~ECHO;
+	    newtio.c_lflag |= ECHONL;
 	    newtio.c_cc[VTIME] = 0;
 	    newtio.c_cc[VMIN] = 1;
 

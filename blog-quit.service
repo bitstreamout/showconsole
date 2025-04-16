@@ -3,12 +3,9 @@ Description=Tell blogd to Quit
 DefaultDependencies=no
 Conflicts=shutdown.target
 After=rc-local.service blog.service systemd-user-sessions.service
-Before=emergency.service rescue.service
-Before=shutdown.target
-After=default.target
 
 [Service]
 Type=oneshot
 TimeoutSec=20
 RemainAfterExit=yes
-ExecStart=/sbin/blogctl quit
+ExecStart=-/sbin/blogctl quit

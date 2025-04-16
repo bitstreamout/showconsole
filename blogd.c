@@ -14,7 +14,8 @@
 # define _GNU_SOURCE
 #endif
 #include <sys/time.h>
-#include <sys/types.h> /* Defines the macros major and minor */
+#include <sys/types.h>
+#include <sys/sysmacros.h> /* Defines the macros major and minor */
 #include <sys/stat.h>
 #include <sys/ioctl.h>
 #include <sys/vt.h>
@@ -34,7 +35,6 @@
 #include <limits.h>
 #include <errno.h>
 #include <paths.h>
-#include <linux/major.h>
 #include "libconsole.h"
 #ifndef  _POSIX_MAX_CANON
 # define _POSIX_MAX_CANON 255
@@ -207,8 +207,8 @@ static void reconnect(int fd)
 	case -1:	/* Weired */
 	    break;
 	default:	/* IO of system consoles */
-	    if ((newfd = open(c->tty, O_WRONLY|O_NONBLOCK|O_NOCTTY)) < 0)
-		error("can not open %s", c->tty);
+	    if ((newfd = open_tty(c->tty, O_WRONLY|O_NONBLOCK|O_NOCTTY|O_CLOEXEC)) < 0)
+		error("can not open %s: %m", c->tty);
 	    dup2(newfd, c->fd);
 	    if (newfd != c->fd)
 		close(newfd);
@@ -270,8 +270,8 @@ int main(int argc, char *argv[])
     close(0);
     close(1);
     close(2);
-    if ((fd = open(console, O_RDWR|O_NONBLOCK|O_NOCTTY)) < 0)
-	error("Can not open system console %s", console);
+    if ((fd = open_tty(console, O_RDWR|O_NONBLOCK|O_NOCTTY|O_CLOEXEC)) < 0)
+	error("Can not open system console %s: %m", console);
 
     if (fd > 0) {
 	(void)ioctl(fd, TIOCNXCL);	/* Avoid EBUSY */
@@ -324,6 +324,12 @@ int main(int argc, char *argv[])
 	    o.c_cc[VTIME] = 0;
 	    o.c_cc[VMIN]  = CMIN;
 	}
+#if defined(__s390__) || defined(__s390x__)
+	if (major(c->dev) == 4 && minor(c->dev) == 65) {
+	    ioctl(c->fd, TIOCSBRK);
+	    usleep(1000);
+	}
+#endif
     }
 
     if (openpty(&ptm, &pts, ptsname, &o, &w) < 0)
@@ -403,23 +409,24 @@ int main(int argc, char *argv[])
 	oldtio = c->otio;				/* Remember old tty I/O flags */
 
 	if (ioctl(c->fd, TIOCMGET, &flags) == 0) {	/* serial line */
-		ispeed = cfgetispeed(&c->otio);
-		ospeed = cfgetospeed(&c->otio);
+	    ispeed = cfgetispeed(&c->otio);
+	    ospeed = cfgetospeed(&c->otio);
 
-		c->otio.c_iflag  = c->otio.c_lflag = 0;
-		c->otio.c_oflag  = (ONLCR | OPOST);
-		c->otio.c_oflag &= ~(OLCUC);
-		c->otio.c_cflag  = CREAD | CS8 | HUPCL | (c->otio.c_cflag & CLOCAL);
+	    c->otio.c_iflag  = c->otio.c_lflag = 0;
+	    c->otio.c_oflag  = (ONLCR | OPOST);
+	    c->otio.c_oflag &= ~(OLCUC);
+	    c->otio.c_cflag  = CREAD | CS8 | HUPCL | (c->otio.c_cflag & CLOCAL);
 
-		cfsetispeed(&c->otio, ispeed);
-		cfsetospeed(&c->otio, ospeed);
+	    cfsetispeed(&c->otio, ispeed);
+	    cfsetospeed(&c->otio, ospeed);
 	} else {
-		ioctl(fd, KDSETMODE, KD_TEXT);		/* Enforce text mode */
+	    if (major(c->dev) == 4 && minor(c->dev) <= 63)
+		ioctl(c->fd, KDSETMODE, KD_TEXT);	/* Enforce text mode */
 
-		c->otio.c_iflag |= (ICRNL | IXON);
-		c->otio.c_iflag &= ~(INLCR | IGNCR | BRKINT);
-		c->otio.c_oflag |= (ONLCR | OPOST);
-		c->otio.c_oflag &= ~(OCRNL | ONLRET | OLCUC);
+	    c->otio.c_iflag |= (ICRNL | IXON);
+	    c->otio.c_iflag &= ~(INLCR | IGNCR | BRKINT);
+	    c->otio.c_oflag |= (ONLCR | OPOST);
+	    c->otio.c_oflag &= ~(OCRNL | ONLRET | OLCUC);
 	}
 
 	(void)tcsetattr(c->fd, TCSADRAIN, &c->otio);
@@ -443,6 +450,16 @@ int main(int argc, char *argv[])
 
     switch ((pid = fork())) {
     case 0:
+#ifdef DEBUG
+{
+    int l;
+    if ((l = open("/dev/shm/blog.out", O_WRONLY|O_NOCTTY|O_NONBLOCK|O_CREAT|O_APPEND, S_IWUSR|S_IRUSR|S_IRGRP|S_IROTH)) >= 0) {
+	dup2(l, STDOUT_FILENO);
+	dup2(l, STDERR_FILENO);
+	close(l);
+    }
+}
+#endif
 	/* Write pid file */
 	dopidfile();
 	/* Get our own session */
@@ -561,7 +578,13 @@ static void exit_handler (void)
     }
 
     errno = 0;
-    if ((fd = open(console, O_RDWR|O_NOCTTY)) >= 0) {
+    if ((fd = open_tty(console, O_RDWR|O_NOCTTY|O_CLOEXEC|O_NONBLOCK)) >= 0) {
+	int flags;
+
+	flags = fcntl(fd, F_GETFL);
+	flags &= ~O_NONBLOCK;
+	fcntl(fd, F_SETFL, flags);
+
 	(void)ioctl(fd, TIOCCONS, NULL);	/* Restore old console mapping */
 	if (fd > 0)
 	    close(fd);
@@ -569,7 +592,7 @@ static void exit_handler (void)
 
     close(1);
     close(2);
-    (void)tcflush(0, TCIFLUSH);
+    (void)tcflush(0, TCIOFLUSH);
     close(0);
 
     reset_signal(SIGTTIN, &saved_sigttin);

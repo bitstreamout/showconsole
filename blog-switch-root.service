@@ -6,6 +6,7 @@ Before=initrd-switch-root.service
 
 [Service]
 Type=oneshot
+RemainAfterExit=yes
 StandardInput=null
 StandardOutput=null
 StandardError=null

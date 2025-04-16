@@ -106,7 +106,9 @@ ssize_t readpw(int fd, char *pass, int eightbit)
 		return -1;
 	    }
 	    *ptr++ = ascval;
+#if 0
 	    wput(fd, '*');
+#endif
 	    break;
 	}
     }

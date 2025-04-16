@@ -1,0 +1,13 @@
+[Unit]
+Description=Start Blogd at System Reboot
+DefaultDependencies=no
+Before=systemd-reboot.service
+Before=reboot.target
+RefuseManualStart=true
+ConditionKernelCommandLine=!blog.enable=0
+ConditionVirtualization=!container
+
+[Service]
+Type=forking
+SendSIGKILL=no
+ExecStart=/sbin/blogd -f

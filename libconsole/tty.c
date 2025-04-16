@@ -20,7 +20,7 @@
 #include <unistd.h>
 #include "libconsole.h"
 
-int open_tty(const char *name, int mode)
+int open_tty(const char *name, int flags)
 {
     int ret, fd;
 
@@ -29,19 +29,16 @@ int open_tty(const char *name, int mode)
 	if (ret++ > 20)
 	    return -1;
 
-	fd = open(name, mode);
+	fd = open(name, flags);
 	if (fd >= 0)
 	    break;
-
+	if (errno != EIO)
+	    return -1;
 	usleep(50000);
 
     } while (errno == EIO);
 
     ret = isatty(fd);
-    if (ret < 0) {
-	close(fd);
-	return -1;
-    }
     if (!ret) {
 	close(fd);
 	errno = ENOTTY;
@@ -78,11 +75,11 @@ int request_tty(const char *tty)
 
     do {
 	ssize_t len;
-	int ret;
+	int ret, flags;
 
 	clear_input(nd);
 
-	fd = open_tty(tty, O_RDWR|O_NOCTTY|O_CLOEXEC);
+	fd = open_tty(tty, O_RDWR|O_NOCTTY|O_CLOEXEC|O_NONBLOCK);
 	if (fd < 0) {
 	    warn("can not open %s", tty);
 	    break;
@@ -93,9 +90,14 @@ int request_tty(const char *tty)
 	reset_signal(SIGHUP, &saved_sighup);
 
 	if (ret < 0 && errno != EPERM) {
+	    tcdrain(fd);
 	    close(fd);
 	    break;
 	}
+
+	flags = fcntl(fd, F_GETFL);
+	flags &= ~O_NONBLOCK;
+	fcntl(fd, F_SETFL, flags);
 
 	if (ret >= 0)
 	    break;	/* Success */
@@ -129,6 +131,7 @@ int request_tty(const char *tty)
 # undef BUF_LEN
 	} while (0);
 
+	tcdrain(fd);
 	close(fd);
 	fd = -1;
 

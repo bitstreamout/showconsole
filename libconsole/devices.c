@@ -67,3 +67,13 @@ char *charname(const char *str)
 
     return name;
 }
+
+char *chardev(const dev_t cons)
+{
+    dev = cons;
+
+    if (nftw("/dev", find_chardevice, 10, FTW_PHYS) < 0)
+	error("can not follow tree below /dev: %m");
+
+    return name;
+}

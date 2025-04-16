@@ -139,6 +139,7 @@ extern void new_root(const char *root);
 
 /* devices.c */
 extern char *charname(const char *dev);
+extern char *chardev(const dev_t cons);
 
 /* dir.c */
 extern void pushd(const char * path);
@@ -179,7 +180,7 @@ extern void list_fd(const pid_t pid);
 extern ssize_t readpw(int fd, char *pass, int eightbit);
 
 /* shm.c */
-extern void* shm_malloc(size_t size, int flags);
+extern void* shm_malloc(size_t size);
 
 /* signals.c */
 extern void set_signal(int sig, struct sigaction *old, sighandler_t handler);

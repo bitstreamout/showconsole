@@ -52,15 +52,24 @@ int main(int argc, char *argv[])
 
     if (!strcmp(myname, "setconsole")) {
 	char *curtty = ttyname(0);
-	int fd, isconsole = 0;
+	int fd, isconsole = 0, c = 0, flags;
 
 	if (curtty && (isconsole = (strcmp("/dev/console", curtty) == 0)))
 	    fd = 0;
-	else
-	    fd = open("/dev/console", O_RDWR|O_NOCTTY);
+	else do {
+	    if (c++ > 20)
+	    	error("can not open console: %m");
+	    fd = open("/dev/console", O_RDWR|O_NOCTTY|O_NONBLOCK);
+	    if (fd >= 0)
+		break;
+	    if (errno != EIO)
+	    	error("can not open console: %m");
+	    usleep(50000);
+	} while (errno == EIO);
 
-	if (fd < 0)
-	    error("can not open console: %m");
+	flags = fcntl(fd, F_GETFL);
+	flags &= ~O_NONBLOCK;
+	fcntl(fd, F_SETFL, flags);
 
 	(void)ioctl(fd, TIOCCONS, NULL);        /* Undo any current map if any */
 	close(fd);
