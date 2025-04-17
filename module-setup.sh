@@ -34,14 +34,14 @@ install() {
 	ln_r "${systemdsystemunitdir}/${s}" "${systemdsystemunitdir}/rescue.target.wants/${s}"
 	ln_r "${systemdsystemunitdir}/${s}" "${systemdsystemunitdir}/emergency.target.wants/${s}"
     done
-    for s in blog.service systemd-ask-password-blog.path
+    for s in blog.service blog-store-messages.service
     do
 	ln_r "${systemdsystemunitdir}/${s}" "${systemdsystemunitdir}/sysinit.target.wants/${s}"
     done
     for u in reboot poweroff kexec halt
     do
 	ln_r "${systemdsystemunitdir}/blog-${u}.service" "${systemdsystemunitdir}/${u}.target.wants/blog-${u}.service"
-	ln_r "${systemdsystemunitdir}/blog-switch-initramfs.service" "${systemdsystemunitdir}/${u}.target.wants/blog-switch-initramfs"
+	ln_r "${systemdsystemunitdir}/blog-switch-initramfs.service" "${systemdsystemunitdir}/${u}.target.wants/blog-switch-initramfs.service"
     done
     for t in systemd-ask-password-blog.service
     do

@@ -1,9 +1,13 @@
 [Unit]
 Description=Tell blogd about writable boot log
 DefaultDependencies=no
+RequiresMountsFor=/var/log/boot.log
+Conflicts=shutdown.target
+After=systemd-remount-fs.service systemd-tmpfiles-setup.service auditd.service
 After=local-fs.target
 Before=sysinit.target
 ConditionPathExists=!/etc/initrd-release
+ConditionPathIsReadWrite=/var/log
 
 [Service]
 Type=oneshot

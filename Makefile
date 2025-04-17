@@ -137,50 +137,28 @@ install:	$(TODO)
 	$(INSTSCR) module-setup.sh	$(DESTDIR)$(DRACUTMOD)/
 	$(LINK) libblogger.so.$(MAJOR).$(MINOR)	$(DESTDIR)$(LIBDIR)/libblogger.so.$(MAJOR)
 	$(LINK) libblogger.so.$(MAJOR).$(MINOR)	$(DESTDIR)$(LIBDIR)/libblogger.so
-	for unit in blog blog-final blog-quit blog-store-messages blog-switch-root blog-switch-initramfs blog-umount ; do \
-	    $(INSTCON) $${unit}.service $(DESTDIR)$(SYSDUNITS)/ ; \
-	done
-	for unit in systemd-ask-password-blog.path systemd-ask-password-blog.service ; do \
-	    $(INSTCON) $${unit}		$(DESTDIR)$(SYSDUNITS)/ ; \
-	done
-	for target in default sysinit basic local-fs-pre halt rescue shutdown reboot poweroff kexec emergency initrd-switch-root; do \
-	    $(MKDIR) $(DESTDIR)$(SYSDUNITS)/$${target}.target.wants ; \
-	done
-	for service in systemd-ask-password-blog ; do \
-	    $(MKDIR) $(DESTDIR)$(SYSDUNITS)/$${target}.service.wants ; \
-	done
-	for unit in blog-quit.service ; do \
-	    $(LINK) ../$${unit} $(DESTDIR)$(SYSDUNITS)/default.target.wants/$${unit} ; \
-	    $(LINK) ../$${unit} $(DESTDIR)$(SYSDUNITS)/rescue.target.wants/$${unit} ; \
-	    $(LINK) ../$${unit} $(DESTDIR)$(SYSDUNITS)/emergency.target.wants/$${unit} ; \
-	done
-	for unit in blog.service ; do \
-	    $(LINK) ../$${unit} $(DESTDIR)$(SYSDUNITS)/basic.target.wants/$${unit} ; \
-	done
-	for unit in blog-store-messages.service systemd-ask-password-blog.path ; do \
-	    $(LINK) ../$${unit} $(DESTDIR)$(SYSDUNITS)/sysinit.target.wants/$${unit} ; \
-	done
-	for unit in blog-umount.service ; do \
-	    $(LINK) ../$${unit} $(DESTDIR)$(SYSDUNITS)/local-fs-pre.target.wants/$${unit} ; \
-	done
-	for unit in blog-switch-initramfs.service ; do \
-	    $(LINK) ../$${unit} $(DESTDIR)$(SYSDUNITS)/reboot.target.wants/$${unit} ; \
-	    $(LINK) ../$${unit} $(DESTDIR)$(SYSDUNITS)/poweroff.target.wants/$${unit} ; \
-	    $(LINK) ../$${unit} $(DESTDIR)$(SYSDUNITS)/kexec.target.wants/$${unit} ; \
-	    $(LINK) ../$${unit} $(DESTDIR)$(SYSDUNITS)/halt.target.wants/$${unit} ; \
-	done
-	for unit in reboot poweroff kexec halt ; do \
-	    $(LINK) ../blog-$${unit}.service $(DESTDIR)$(SYSDUNITS)/$${unit}.target.wants/blog-$${unit}.service ; \
-	done
-	for target in systemd-ask-password-blog.service ; do \
-	    $(MKDIR) $(DESTDIR)$(SYSDUNITS)/$${target}.wants ; \
-	done
-	for unit in blog.service blog-switch-root.service ; do \
-	    $(LINK) ../$${unit} $(DESTDIR)$(SYSDUNITS)/initrd-switch-root.target.wants/$${unit} ; \
-	done
-	for unit in systemd-vconsole-setup.service ; do \
-	    $(LINK) ../$${unit} $(DESTDIR)$(SYSDUNITS)/systemd-ask-password-blog.service.wants/$${unit} ; \
-	done
+	@set +x; \
+	export initdir=$(DESTDIR); \
+	export systemdsystemunitdir=$(SYSDUNITS); \
+	inst_multiple () { \
+	    if test $$1 = -o; then \
+		 shift; \
+		 for o; do \
+		     test -e $${o##*/} && command install -vp -m 0644 $${o##*/} $${initdir}$${o} || : ; \
+		 done; \
+	    else \
+		command install -vp -m 0755 $${1##*/} $${initdir}$(SBINDIR)/; \
+	    fi; \
+	}; \
+	ln_r () { \
+	    local rel="$$(realpath -m --relative-to=$${2%/*}/ $${1%/*}/)"; \
+	    ln -sf $${rel}/$${1##*/} $${initdir}$${2}; }; \
+	. ./module-setup.sh ; \
+	set -xe; install
+	$(MKDIR)	$(DESTDIR)$(SYSDUNITS)/local-fs-pre.target.wants
+	$(MKDIR)	$(DESTDIR)$(SYSDUNITS)/default.target.wants
+	$(LINK) ../blog-umount.service	$(DESTDIR)$(SYSDUNITS)/local-fs-pre.target.wants/
+	$(LINK) ../blog-quit.service	$(DESTDIR)$(SYSDUNITS)/default.target.wants/
 
 #
 # Make distribution
@@ -205,8 +183,11 @@ FILES	= README	\
 	  isserial.c	\
 	  isserial.8	\
 	  blog.service				\
-	  blog-final.service			\
+	  blog-halt.service			\
+	  blog-kexec.service			\
+	  blog-poweroff.service			\
 	  blog-quit.service			\
+	  blog-reboot.service			\
 	  blog-store-messages.service.in	\
 	  blog-switch-root.service		\
 	  blog-switch-initramfs.service		\
