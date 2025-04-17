@@ -15,6 +15,7 @@
 #include <signal.h>
 #include <sys/inotify.h>
 #include <sys/ioctl.h>
+#include <sys/sysmacros.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
@@ -52,6 +53,9 @@ int request_tty(const char *tty)
 {
     struct sigaction saved_sighup;
     int fd = -1, nd, wd;
+#if defined(__s390__) || defined(__s390x__)
+    struct stat sb;
+#endif
 
     fd = open("/dev/tty", O_RDWR|O_NOCTTY|O_CLOEXEC|O_NONBLOCK);
     if (fd >= 0) {
@@ -95,9 +99,16 @@ int request_tty(const char *tty)
 	    break;
 	}
 
+#if defined(__s390__) || defined(__s390x__)
+	if (fstat(fd, &sb) == 0 && major(sb.st_dev) == 4 && minor(sb.st_dev) == 64)
+	    goto noblock;
+#endif
 	flags = fcntl(fd, F_GETFL);
 	flags &= ~O_NONBLOCK;
 	fcntl(fd, F_SETFL, flags);
+#if defined(__s390__) || defined(__s390x__)
+    noblock:
+#endif
 
 	if (ret >= 0)
 	    break;	/* Success */

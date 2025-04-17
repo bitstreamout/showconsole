@@ -325,7 +325,7 @@ int main(int argc, char *argv[])
 	    o.c_cc[VMIN]  = CMIN;
 	}
 #if defined(__s390__) || defined(__s390x__)
-	if (major(c->dev) == 4 && minor(c->dev) == 65) {
+	if (major(c->dev) == 4 && minor(c->dev) == 64) {
 	    ioctl(c->fd, TIOCSBRK);
 	    usleep(1000);
 	}

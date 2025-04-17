@@ -598,11 +598,17 @@ static int consinitIO(struct console *newc)
     memset(&newc->ltio, 0, sizeof(newc->ltio));
     memset(&newc->otio, 0, sizeof(newc->otio));
     memset(&newc->ctio, 0, sizeof(newc->ctio));
+
+#if defined(__s390__) || defined(__s390x__)
+    if (major(newc->dev) == 4 && minor(newc->dev) == 64)
+	return 1;
+#endif
     if ((tflags = fcntl(newc->fd, F_GETFL)) < 0)
 	warn("can not get terminal flags of %s", newc->tty);
 
     tflags &= ~(O_NONBLOCK);
     tflags |=   O_NOCTTY;
+
     if (fcntl(newc->fd, F_SETFL, tflags) < 0)
 	warn("can not set terminal flags of %s", newc->tty);
 
@@ -1319,7 +1325,7 @@ static void ask_for_password(void)
 		(major(c->dev) == 227 && minor(c->dev) >= 1))
 		len = asprintf(&message, BOLD RED "\n\r%s: " NORM, pwprompt);
 	    else
-		len = asprintf(&message, "\n\r>> %s: ", pwprompt);
+		len = asprintf(&message, "\n\r===>> %s: ", pwprompt);
 #else
 	    if (c->flags & CON_SERIAL)
 		len = asprintf(&message, BOLD RED "\n\r%s: " NORM, pwprompt);
