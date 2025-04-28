@@ -191,9 +191,11 @@ static void sigsys(int sig)
 /*
  * To be able to reconnect to real tty on EIO
  */
-static void reconnect(int fd)
+static int reconnect(int fd)
 {
     struct console * c;
+    int ret = 0, tflags;
+    int olderr = errno;
 
     list_for_each_entry(c, &cons->node, node) {
 	int newfd;
@@ -209,12 +211,27 @@ static void reconnect(int fd)
 	default:	/* IO of system consoles */
 	    if ((newfd = open_tty(c->tty, O_WRONLY|O_NONBLOCK|O_NOCTTY|O_CLOEXEC)) < 0)
 		error("can not open %s: %m", c->tty);
+	    epoll_delete(c->fd);
 	    dup2(newfd, c->fd);
 	    if (newfd != c->fd)
 		close(newfd);
+	    epoll_addwrite(c->fd, &epoll_write_watchdog);
+            ret = 1;
+#if defined(__s390__) || defined(__s390x__)
+	    if (major(c->dev) == 4 && minor(c->dev) == 64)
+		break;
+#endif
+	    if ((tflags = fcntl(c->fd, F_GETFL)) < 0)
+		warn("can not get terminal flags of %s", c->tty);
+	    tflags &= ~(O_NONBLOCK);
+	    if (fcntl(c->fd, F_SETFL, tflags) < 0)
+		warn("can not set terminal flags of %s", c->tty);
 	    break;
 	}
     }
+    errno = olderr;
+
+    return ret;
 }
 
 
@@ -222,6 +239,9 @@ static volatile pid_t pid = -1;
 
 static void flush_handler (void) attribute((noinline));
 static void exit_handler (void) attribute((noinline));
+#if defined(__s390__) || defined(__s390x__)
+static void vmcp_handler (void) attribute((noinline));
+#endif
 
 /*
  * Now do the job
@@ -325,8 +345,22 @@ int main(int argc, char *argv[])
 	    o.c_cc[VMIN]  = CMIN;
 	}
 #if defined(__s390__) || defined(__s390x__)
-	if (major(c->dev) == 4 && minor(c->dev) == 64) {
-	    ioctl(c->fd, TIOCSBRK);
+	if (major(c->dev) == 4 && minor(c->dev) == 64 && final == 0) {
+	    char *msg;
+	    int vmcp;
+
+	    vmcp = openvmcp();
+	    if (vmcp) {
+		msg = queryterm(vmcp);
+		if (msg) {
+		    parseterm(msg);
+		    free(msg);
+		    setterm(vmcp);
+		}
+		close(vmcp);
+		atexit(vmcp_handler);	/* Register vmcp restore exit handler */
+	    }
+	    ioctl(c->fd, TIOCCBRK);
 	    usleep(1000);
 	}
 #endif
@@ -605,3 +639,13 @@ static void exit_handler (void)
     reset_signal(SIGTERM, &saved_sigterm);
     reset_signal(SIGSYS,  &saved_sigsys);
 }
+
+#if defined(__s390__) || defined(__s390x__)
+static void vmcp_handler (void)
+{
+    int vmcp = openvmcp();
+    if (vmcp >= 0)
+	restoreterm(vmcp);
+    close(vmcp);
+}
+#endif

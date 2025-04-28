@@ -127,12 +127,13 @@ extern void remember_arg0(volatile char *arg0);
 extern ssize_t safein (int fd, void *ptr, size_t s);
 extern void safeout (int fd, const void *ptr, size_t s, ssize_t max);
 
-extern void prepareIO(void (*rfunc)(int), const int listen, const int in);
+extern void prepareIO(int (*rfunc)(int), const int listen, const int in);
 extern void safeIO (void);
 extern void closeIO(void);
 
 extern struct console *cons;
 extern void getconsoles(struct console **cons, int io);
+extern void epoll_write_watchdog(int) attribute((noinline));
 
 /* chroot.c */
 extern void new_root(const char *root);
@@ -147,7 +148,9 @@ extern void popd(void);
 
 /* epoll.c */
 extern void epoll_addread(int fd, void *fptr);
+extern void epoll_addwrite(int fd, void *fptr);
 extern void epoll_answer_once(int fd, void *fptr);
+extern void epoll_reenable(int fd);
 extern void epoll_delete(int fd);
 extern void (*epoll_handle(void *ptr, int *fd))(int);
 extern void epoll_close_fd(void);
@@ -156,8 +159,8 @@ extern void epoll_close_fd(void);
 extern void *frobnicate(void *in, const size_t len);
 
 /* io.c */
-extern int can_read(int fd, const long timeout);
-extern int can_write(int fd, const int timeout);
+extern int can_read(int fd, const time_t msec);
+extern int can_write(int fd, const time_t msec);
 extern void clear_input(int fd);
 
 /* log.c */
@@ -197,6 +200,15 @@ extern void str0append(char **buf, size_t *size, const char *str);
 /* tty.c */
 extern int open_tty(const char *name, int mode);
 extern int request_tty(const char *tty);
+
+/* vmcp.c */
+#if defined(__s390__) || defined(__s390x__)
+int openvmcp(void);
+char* queryterm(int fd);
+int setterm(int fd);
+int restoreterm(int fd);
+void parseterm(char *msg);
+#endif
 
 #define MAX_PASSLEN	LINE_MAX
 /* Some shorthands for control characters. */

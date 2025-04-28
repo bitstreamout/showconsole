@@ -28,14 +28,14 @@ static struct epolls {
     int fd;
 } *epolls;
 
-void epoll_addread(int fd, void *fptr)
+static inline void epoll_addition(int fd, void *fptr, uint32_t flags)
 {
     struct epoll_event ev = {};
     struct epolls *ep;
     list_t *head;
     int ret;
 
-    ev.events = EPOLLIN|EPOLLPRI;
+    ev.events = flags;
 
     if (posix_memalign((void**)&ep, sizeof(void*), alignof(struct epolls)) != 0 || !ep)
 	error("memory allocation");
@@ -56,6 +56,16 @@ void epoll_addread(int fd, void *fptr)
     ret = epoll_ctl(epfd, EPOLL_CTL_ADD, fd, &ev);
     if (ret < 0)
 	error("can not add %d file descriptor on epoll file descriptor", fd);
+}
+
+void epoll_addread(int fd, void *fptr)
+{
+    epoll_addition(fd, fptr, EPOLLIN|EPOLLPRI|EPOLLRDHUP);
+}
+
+void epoll_addwrite(int fd, void *fptr)
+{
+    epoll_addition(fd, fptr, EPOLLOUT|EPOLLONESHOT|EPOLLPRI|EPOLLERR);
 }
 
 void epoll_answer_once(int fd, void *fptr)
@@ -88,6 +98,26 @@ void epoll_answer_once(int fd, void *fptr)
 	error("can not add %d file descriptor on epoll file descriptor", fd);
 }
 
+void epoll_reenable(int fd)
+{
+    struct epoll_event ev = {};
+    struct epolls *ep;
+
+    ev.events = EPOLLOUT|EPOLLONESHOT;
+
+    list_for_each_entry(ep, &lpolls, watch) {
+	if (ep->fd == fd) {
+	    int ret;
+	    ev.data.ptr = (void*)ep;
+	    ret = epoll_ctl(epfd, EPOLL_CTL_MOD, fd, &ev);
+	    if (ret < 0)
+		error("can not add %d file descriptor on epoll file descriptor", fd);
+	    break;
+	}
+    }
+
+}
+
 void epoll_delete(int fd)
 {
     struct epolls *ep, *n;
@@ -95,8 +125,6 @@ void epoll_delete(int fd)
 
     list_for_each_entry_safe(ep, n, &lpolls, watch) {
 	if (ep->fd == fd) {
-	    if (isatty(fd))
-		tcdrain(fd);
 	    delete(&ep->watch);
 	    free(ep);
 	    break;
@@ -118,8 +146,6 @@ void (*epoll_handle(void *ptr, int *fd))(int)
 	if (ep == ptr) {
 	    handle = ep->handle;
 	    *fd = ep->fd;
-	    if (isatty(ep->fd))
-		tcdrain(ep->fd);
 	    break;
 	}
     }
@@ -132,9 +158,6 @@ void epoll_close_fd(void)
 {
     struct epolls *ep;
 
-    list_for_each_entry(ep, &lpolls, watch) {
-	if (isatty(ep->fd))
-	    tcdrain(ep->fd);
+    list_for_each_entry(ep, &lpolls, watch)
 	close(ep->fd);
-    }
 }

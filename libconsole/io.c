@@ -21,7 +21,7 @@
  * The sigset_t omask is given in console.c
  *
  */
-int can_read(int fd, const long timeout)
+int can_read(int fd, const time_t msec)
 {
     struct pollfd fds = {
 	.fd = fd,
@@ -29,19 +29,19 @@ int can_read(int fd, const long timeout)
 	.revents = 0,
     };
     struct timespec ts = {
-	.tv_sec = (time_t)(timeout/1000),
-	.tv_nsec = (timeout % 1000) * 1000000,
+	.tv_sec = (time_t)(msec/1000),
+	.tv_nsec = (msec % 1000) * 1000000,
     };
     int ret;
 
     do {
-	ret = ppoll(&fds, 1, (timeout < 0) ? NULL : &ts, &omask);
+	ret = ppoll(&fds, 1, (msec < 0) ? NULL : &ts, &omask);
     } while ((ret < 0) && (errno == EINTR));
 
     return (ret == 1) && (fds.revents & (POLLIN|POLLPRI));
 }
 
-int can_write(int fd, const int timeout)
+int can_write(int fd, const time_t msec)
 {
     struct pollfd fds = {
 	.fd = fd,
@@ -49,13 +49,13 @@ int can_write(int fd, const int timeout)
 	.revents = 0,
     };
     struct timespec ts = {
-	.tv_sec = (time_t)(timeout/1000),
-	.tv_nsec = (timeout % 1000) * 1000000,
+	.tv_sec = (time_t)(msec/1000),
+	.tv_nsec = (msec % 1000) * 1000000,
     };
     int ret;
 
     do {
-	ret = ppoll(&fds, 1, (timeout < 0) ? NULL : &ts, &omask);
+	ret = ppoll(&fds, 1, (msec < 0) ? NULL : &ts, &omask);
     } while ((ret < 0) && (errno == EINTR));
 
     return (ret == 1) && (fds.revents & (POLLOUT|POLLWRBAND));

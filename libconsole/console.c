@@ -26,6 +26,7 @@
 #include <sys/klog.h>
 #include <sys/mman.h>
 #include <sys/prctl.h>
+#include <sys/select.h>		/* declares fd_set */
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -67,6 +68,13 @@
  * Password/Passphrase is asked if true.
  */
 volatile sig_atomic_t asking;
+
+/*
+ * One of the device for console are blocked if true.
+ */
+static fd_set blocked;
+static const fd_set empty;
+#define FD_BUSY(arg)	(memcmp(arg, &empty, sizeof(fd_set)) != 0)
 
 /*
  * Move log file to old file
@@ -117,23 +125,29 @@ static void chld_handler(int sig) {
 }
 
 /*
+ * The stdio file pointer for our log file
+ */
+struct console *cons;
+static FILE * flog = NULL;
+static int fdread  = -1;
+static int fdfifo  = -1;
+
+static int fdsock  = -1;
+static char *pwprompt;
+static char *password;
+static int32_t *pwsize;
+
+/*
  * Arg used: safe out
  */
-static void (*vc_reconnect)(int fd);
+static int (*vc_reconnect)(int fd);
 void safeout (int fd, const void *ptr, size_t s, ssize_t max)
 {
     int saveerr = errno;
-    int issocket = 0;
-    struct stat st;
-
-    if (fstat(fd, &st) < 0)
-	goto out;
-    if (S_ISSOCK(st.st_mode))
-	issocket++;
 
     while (s > 0) {
 	ssize_t p;
-	if (issocket) {
+	if (fdsock == fd) {		/* We use only ONE socket, no fstat() required */
 	    int flags = MSG_NOSIGNAL;
 	    if (s > max)
 		flags |= MSG_MORE;
@@ -142,7 +156,7 @@ void safeout (int fd, const void *ptr, size_t s, ssize_t max)
 	    p = write (fd, ptr, (max < 1) ? 1 : ((s < (size_t)max) ? s : (size_t)max));
 	if (p < 0) {
 	    if (errno == EPIPE)
-		break;
+		break;			/* Drop the rest of the message */
 
 	    if (errno == EINTR) {
 		errno = 0;
@@ -150,15 +164,19 @@ void safeout (int fd, const void *ptr, size_t s, ssize_t max)
 	    }
 	    if (errno == EAGAIN || errno == EWOULDBLOCK) {
 
-		/* Avoid high load: wait upto two seconds if system is not ready */
-		if (can_write(fd, 2))
+		/* Avoid high load: wait upto 100 milli seconds if system is not ready */
+		if (can_write(fd, 100))
 		    continue;
+
+		FD_SET(fd, &blocked);
+		epoll_reenable(fd);
+		break;			/* Drop the rest of the message */
 	    }
 	    if (errno == EIO) {
 		if (!vc_reconnect)
 		    lerror("can not write to fd %d", fd);
-
-		(*vc_reconnect)(fd);
+		if (!(*vc_reconnect)(fd))
+		    lerror("can not write to fd %d", fd);
 		errno = 0;
 		continue;
 	    }
@@ -169,6 +187,51 @@ void safeout (int fd, const void *ptr, size_t s, ssize_t max)
     }
 out:
     errno = saveerr;
+}
+
+/*
+ * Arg used: copy out
+ */
+static ssize_t copyout (int fd, const void *ptr, size_t s, ssize_t max)
+{
+    int saveerr = errno;
+    ssize_t r = 0, p;
+    do {
+	p = write (fd, ptr, (max < 1) ? 1 : ((s < (size_t)max) ? s : (size_t)max));
+	if (p < 0) {
+	    if (errno == EINTR) {
+		errno = 0;
+		continue;
+	    }
+	    if (errno == EAGAIN || errno == EWOULDBLOCK) {
+		FD_SET(fd, &blocked);
+		epoll_reenable(fd);
+		if (r == 0)
+		    r = -1;
+		break;
+	    }
+	    if (errno == EIO) {
+		if (!vc_reconnect) {
+		    warn("can not write to fd %d", fd);
+		    break;
+		}
+		if (!(*vc_reconnect)(fd)) {
+		    warn("can not write to fd %d", fd);
+		    break;
+		}
+		errno = 0;
+		continue;
+	    }
+	    warn("can not write to fd %d", fd);
+            break;
+	}
+	ptr += p;
+	s -= p;
+	r += p;
+    } while (s > 0);
+
+    errno = saveerr;
+    return r;
 }
 
 /*
@@ -241,19 +304,6 @@ out:
 }
 
 /*
- * The stdio file pointer for our log file
- */
-struct console *cons;
-static FILE * flog = NULL;
-static int fdread  = -1;
-static int fdfifo  = -1;
-
-static int fdsock  = -1;
-static char *pwprompt;
-static char *password;
-static int32_t *pwsize;
-
-/*
  * Signal control for writing on log file
  */
 volatile sig_atomic_t nsigsys;
@@ -276,7 +326,11 @@ static char trans[TRANS_BUFFER_SIZE];
 /*
  * Our temporary buffer during asking a password/passphrase
  */
+#if defined(__s390__) || defined(__s390x__)
+static	     char temp[8*TRANS_BUFFER_SIZE];
+#else
 static	     char temp[4*TRANS_BUFFER_SIZE];
+#endif
 static const char *const tend = temp + sizeof(temp);
 static       char *     thead = temp;
 static       char *     ttail = temp;
@@ -289,9 +343,12 @@ static const char *fifo_name = _PATH_BLOG_FIFO;
 static void epoll_console_in(int) attribute((noinline));
 static void epoll_fifo_in(int) attribute((noinline));
 static void epoll_socket_accept(int) attribute((noinline));
+void epoll_write_watchdog(int) attribute((noinline));
 
-void prepareIO(void (*rfunc)(int), const int listen, const int input)
+void prepareIO(int (*rfunc)(int), const int listen, const int input)
 {
+    struct console *c;
+
     (void)sigfillset(&omask);
     (void)sigdelset(&omask, SIGQUIT);
     (void)sigdelset(&omask, SIGTERM);
@@ -299,7 +356,7 @@ void prepareIO(void (*rfunc)(int), const int listen, const int input)
     (void)sigdelset(&omask, SIGIO);
 
     vc_reconnect = rfunc;
-    fdsock  = listen;
+    fdsock  = listen;			/* We use only ONE socket ... see also safeout() */
     fdread  = input;
 
     if (fifo_name && fdfifo < 0) {
@@ -325,6 +382,12 @@ void prepareIO(void (*rfunc)(int), const int listen, const int input)
 	epoll_addread(fdfifo, &epoll_fifo_in);
     if (fdsock >= 0)
 	epoll_addread(fdsock, &epoll_socket_accept);
+
+    list_for_each_entry(c, &cons->node, node) {
+	if (c->fd < 0)
+	    continue;
+	epoll_addwrite(c->fd, &epoll_write_watchdog);
+    }
 
     (void)mlockall(MCL_FUTURE);
 }
@@ -352,26 +415,22 @@ static int more_input (int timeout, const int noerr)
     safein_noexit = noerr;  /* Do or do not not exit on unexpected errors */
 
     for (n = 0; n < nfds; n++) {
-	if (evlist[n].events & (EPOLLIN|EPOLLPRI)) {
-	    void (*efunc)(int);
-	    int fd;
-	    efunc = epoll_handle(evlist[n].data.ptr, &fd);
-	    if (!efunc)
-		continue;
+	void (*efunc)(int);
+	int fd;
+	efunc = epoll_handle(evlist[n].data.ptr, &fd);
+	if (!efunc)
+	    continue;
+	ret = 1;
+	if (evlist[n].events & (EPOLLIN|EPOLLOUT)) {
 	    efunc(fd);
-	    ret = 1;
+	    continue;
 	}
-    }
-
-    for (n = 0; n < nfds; n++) {
-	if (evlist[n].events & (EPOLLOUT)) {
-	    void (*efunc)(int);
-	    int fd;
-	    efunc = epoll_handle(evlist[n].data.ptr, &fd);
-	    if (!efunc)
-		continue;
-	    efunc(fd);
+	if (evlist[n].events & (EPOLLRDHUP|EPOLLHUP)) {
+	    warn("epoll returns RDHUP or HUP");
+	    continue;
 	}
+	if (evlist[n].events & EPOLLERR)
+	    warn("epoll returns error");
     }
 
     safein_noexit = 0;
@@ -794,18 +853,36 @@ static void epoll_console_in(int fd)
 
 	parselog(trans, cnt);				/* Parse and make copy of the input */
 
+	list_for_each_entry(c, &cons->node, node) {
+	    int len;
+	    char *mesg;
+	    if (c->fd < 0)
+		continue;
+	    if (FD_ISSET(c->fd, &blocked))
+		break;					/* Let's wait on epoll event */
+	    if (can_write(c->fd, 50))
+		continue;
+	    FD_SET(c->fd, &blocked);
+	    epoll_reenable(c->fd);
+	    len = asprintf(&mesg, "blogd: console device %s is blocked", c->tty);
+	    if (len < 0)
+		error("can not allocate string");
+	    copylog(mesg, len);
+	    free(mesg);
+	}
+
 	/*
 	 * During asking a password/passphrase we are temporary
 	 * buffer console output to release it if we've got an answer.
 	 */
-	if (asking) {
+	if (asking || FD_BUSY(&blocked)) {
 	    if (cnt <= (size_t)(tend - ttail)) {
 		memcpy(ttail, trans, cnt);
 		tavail = (ttail += cnt) - thead;
 	    }
 
-	    goto flush;                                 /* Temporary silent as waiting on passphrase */
-
+	    goto flush;                                 /* Temporary silent as waiting on
+							   passphrase or console device */
 	} else while (tavail > 0) {			/* Empty temporary buffer if any */
 	    size_t len = (size_t)tavail;
 
@@ -813,9 +890,13 @@ static void epoll_console_in(int fd)
 		len = TRANS_BUFFER_SIZE;
 
 	    list_for_each_entry(c, &cons->node, node) {
+		size_t ret;
 		if (c->fd < 0)
 		    continue;
-		safeout(c->fd, thead, len, c->max_canon);
+		ret = copyout(c->fd, thead, len, c->max_canon);
+		if (ret < 1)
+		    goto flush;
+		len = ret;				/* First make write out all but Second? */
 		(void)tcdrain(c->fd);			/* Write copy of input to real tty */
 	    }
 	    thead += len;
@@ -834,9 +915,17 @@ static void epoll_console_in(int fd)
 	}
 
 	list_for_each_entry(c, &cons->node, node) {
+	    size_t ret;
 	    if (c->fd < 0)
 		continue;
-	    safeout(c->fd, trans, cnt, c->max_canon);
+	    ret = copyout(c->fd, trans, cnt, c->max_canon);
+	    if (ret < 1) {
+		if (cnt <= (size_t)(tend - ttail)) {
+		    memcpy(ttail, trans, cnt);
+		    tavail = (ttail += cnt) - thead;
+		}
+		break;
+            }
 	    (void)tcdrain(c->fd);			/* Write copy of input to real tty */
 	}
 flush:
@@ -1219,6 +1308,14 @@ job:			/* Do not close connection for reply */
 }
 
 /*
+ * The watch dog for all outgoing terminals
+ */
+void epoll_write_watchdog(int fd)
+{
+    FD_CLR(fd, &blocked);
+}
+
+/*
  * Do handle the connection in data
  */
 char* currenttty;
@@ -1249,7 +1346,7 @@ static void ask_for_password(void)
     wait = 200;
     while (wait > 0 && (len = klogctl(SYSLOG_ACTION_SIZE_UNREAD, NULL, 0)) > 0) {
 	usleep(1000);
-        wait--;
+	wait--;
     }
     wait = 0;
 
@@ -1284,6 +1381,8 @@ static void ask_for_password(void)
 		epoll_close_fd();
 		close(epfd);
 	    }
+            FD_ZERO(&blocked);
+	    vc_reconnect = NULL;
 
 	    dup2(1, 2);
 	    dup2(c->fd, 0);
@@ -1292,7 +1391,6 @@ static void ask_for_password(void)
 
 	    list_for_each_entry(d, &cons->node, node)
 		if (d->fd >= 0) {
-		    (void)tcdrain(d->fd);
 		    close(d->fd);
 		    d->fd = -1;
 		}
@@ -1302,6 +1400,7 @@ static void ask_for_password(void)
 	    set_signal(SIGHUP,  NULL, SIG_DFL);
 
 	    prctl(PR_SET_PDEATHSIG, SIGHUP);
+	    prctl(PR_SET_NAME, "login");
 
 	    set_signal(SIGCHLD, NULL, SIG_DFL);
 	    set_signal(SIGINT,  NULL, SIG_DFL);
@@ -1355,8 +1454,8 @@ static void ask_for_password(void)
 	    tcsetattr(0, TCSANOW, &c->ctio);
 	    safeout(1, "\n", 1, c->max_canon);
 
-            if (*pwsize == 0)
-                goto again;
+	    if (*pwsize == 0)
+		goto again;
 
 	    if (*pwsize < 0)
 		warn("can not read password");

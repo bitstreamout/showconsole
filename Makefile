@@ -15,7 +15,7 @@ BOOT_FIFO	= /dev/blog
 DEBUG	 =
 DESTDIR	 =
 MAJOR	 :=	2
-MINOR	 :=	34
+MINOR	 :=	35
 VERSION	 :=	$(MAJOR).$(MINOR)
 DATE	 =	$(shell date +'%d%b%y' | tr '[:lower:]' '[:upper:]')
 COPTS    =
@@ -83,7 +83,7 @@ all: $(TODO)
 	$(SED) '$(SEDOPTS)' $< > $@
 
 $(libfiles):  $(L)libconsole.h listing.h
-libconsole.a: $(patsubst %.c,%.o,$(libfiles))
+libconsole.a: $(patsubst %.c,%.o,$(libfiles)) $(L)libconsole.h listing.h
 	$(AR) rusv $@ $^
 
 libblogger.o:	libconsole.a
