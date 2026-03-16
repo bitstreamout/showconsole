@@ -10,6 +10,10 @@
  * (at your option) any later version.
  */
 
+#ifndef  _GNU_SOURCE
+# define _GNU_SOURCE
+#endif
+
 #include <errno.h>
 #include <fcntl.h>
 #include <inttypes.h>
@@ -30,6 +34,7 @@
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/types.h>
+#include <sys/syscall.h>
 #include <sys/sysmacros.h>
 #include <sys/vfs.h>
 #include <sys/wait.h>
@@ -37,10 +42,26 @@
 #include "listing.h"
 #include "libconsole.h"
 
-#undef BLOGD_EXT
-#ifndef  _GNU_SOURCE
-# define _GNU_SOURCE
+/* Fallback for older glibc */
+
+#ifndef SYS_pidfd_open
+# ifdef __NR_pidfd_open
+#  define SYS_pidfd_open __NR_pidfd_open
+# else
+#  define SYS_pidfd_open 434
+# endif
 #endif
+
+static inline int pidfd_open(pid_t pid, unsigned int flags)
+{
+    return syscall(SYS_pidfd_open, pid, flags);
+}
+
+#ifndef P_PIDFD
+# define P_PIDFD 3
+#endif
+
+#undef BLOGD_EXT
 #ifndef  BOOT_LOGFILE
 # define BOOT_LOGFILE		"/var/log/boot.log"
 #endif
@@ -68,6 +89,11 @@
  * Password/Passphrase is asked if true.
  */
 volatile sig_atomic_t asking;
+
+/*
+ * Ths is the socket fd for the answer.
+ */
+static int pwd_client_fd = -1;
 
 /*
  * One of the device for console are blocked if true.
@@ -101,7 +127,7 @@ sigset_t omask;
  * Handle extended polls
  */
 int epfd  = -1;
-int evmax;
+int evmax = 0;
 
 /*
  * Remember if we're signaled.
@@ -223,7 +249,7 @@ static ssize_t copyout (int fd, const void *ptr, size_t s, ssize_t max)
 		continue;
 	    }
 	    warn("can not write to fd %d", fd);
-            break;
+	    break;
 	}
 	ptr += p;
 	s -= p;
@@ -401,8 +427,6 @@ static int more_input (int timeout, const int noerr)
     int nfds, n, ret = 0;
     int saveerr = errno;
 
-    memset(&evlist[0], 0, evmax * sizeof(struct epoll_event));
-
     errno = 0;
     nfds = epoll_pwait(epfd, &evlist[0], evmax, timeout, &omask);
     if (nfds < 0) {
@@ -417,20 +441,22 @@ static int more_input (int timeout, const int noerr)
     for (n = 0; n < nfds; n++) {
 	void (*efunc)(int);
 	int fd;
+
+	ret = 1;
+
 	efunc = epoll_handle(evlist[n].data.ptr, &fd);
 	if (!efunc)
 	    continue;
+
 	ret = 1;
-	if (evlist[n].events & (EPOLLIN|EPOLLOUT)) {
+
+	if (evlist[n].events & (EPOLLIN | EPOLLOUT | EPOLLRDHUP | EPOLLHUP | EPOLLERR)) {
+	    if (evlist[n].events & (EPOLLRDHUP | EPOLLHUP | EPOLLERR)) {
+		warn("epoll returned RDHUP, HUP or ERR on fd %d", fd);
+	    }
 	    efunc(fd);
 	    continue;
 	}
-	if (evlist[n].events & (EPOLLRDHUP|EPOLLHUP)) {
-	    warn("epoll returns RDHUP or HUP");
-	    continue;
-	}
-	if (evlist[n].events & EPOLLERR)
-	    warn("epoll returns error");
     }
 
     safein_noexit = 0;
@@ -881,7 +907,7 @@ static void epoll_console_in(int fd)
 		tavail = (ttail += cnt) - thead;
 	    }
 
-	    goto flush;                                 /* Temporary silent as waiting on
+	    goto flush;					/* Temporary silent as waiting on
 							   passphrase or console device */
 	} else while (tavail > 0) {			/* Empty temporary buffer if any */
 	    size_t len = (size_t)tavail;
@@ -925,7 +951,7 @@ static void epoll_console_in(int fd)
 		    tavail = (ttail += cnt) - thead;
 		}
 		break;
-            }
+	    }
 	    (void)tcdrain(c->fd);			/* Write copy of input to real tty */
 	}
 flush:
@@ -999,6 +1025,67 @@ static void epoll_socket_accept(int fd)
 	epoll_addread(fdconn, &socket_handler);
 }
 
+static void __attribute__((noinline)) epoll_pwd_done(int fd)
+{
+    siginfo_t info = {};
+    struct console *c;
+
+    /* Sweep zombie. WNOHANG avoid blocking, for false positive event */
+    if (waitid(P_PIDFD, fd, &info, WEXITED | WNOHANG) < 0) {
+	if (errno == ECHILD) {
+	    /* Already reaped or invalid, clean up FD anyway */
+	    epoll_delete(fd);
+	    close(fd);
+	}
+	return;
+    }
+
+    /* Waitid didn't error, but also didn't reap anyone (e.g. stopped, not exited) */
+    if (info.si_pid == 0) {
+	return;
+    }
+
+    /* We successfully reaped a process. Clear descriptor for this gone process */
+    epoll_delete(fd);
+    close(fd);
+
+    /* Is this the first process which delivers a password? */
+    if (asking) {
+
+	if (info.si_code == CLD_EXITED && info.si_status == 0) {
+	    asking = 0;		/* Success! */
+	    
+	    /* 1. Deliver the password and close the socket as well */
+	    if (pwd_client_fd >= 0) {
+		(void)do_answer_password(pwd_client_fd);
+		epoll_delete(pwd_client_fd);
+		close(pwd_client_fd);
+		pwd_client_fd = -1;
+	    }
+    
+	    /* 2. Enable Kernel-Logging to the console Konsole */
+	    klogctl(SYSLOG_ACTION_CONSOLE_ON, NULL, 0);
+    
+	    /* 3. Close other waiting password processes */
+	    list_for_each_entry(c, &cons->node, node) {
+		if (c->pid > 0 && c->pid != info.si_pid) {
+		    kill(c->pid, SIGTERM);
+		}
+		if (c->pid == info.si_pid) {
+		    c->pid = -1; /* we are done now */
+		}
+	    }
+	}
+    } else {
+	/* Clear Zombies */
+	list_for_each_entry(c, &cons->node, node) {
+	    if (c->pid == info.si_pid) {
+		c->pid = -1;
+	    }
+	}
+    }
+}
+
 static void ask_for_password(void) attribute((noinline));
 static void epoll_socket_answer(int fd)
 {
@@ -1008,10 +1095,9 @@ static void epoll_socket_answer(int fd)
 	return;
     }
 
+    /* Remember the Socket for later and start the background process */
+    pwd_client_fd = fd;
     ask_for_password();
-    (void)do_answer_password(fd);
-    epoll_delete(fd);
-    close(fd);
 }
 
 static void socket_handler(int fd)
@@ -1321,11 +1407,7 @@ void epoll_write_watchdog(int fd)
 char* currenttty;
 static void ask_for_password(void)
 {
-    struct timespec timeout = {0, 50000000};
-    siginfo_t status = {};
-    sigset_t set = {};
     struct console *c;
-    int wait;
     size_t len;
 
     if (!pwprompt && !*pwprompt)
@@ -1343,19 +1425,11 @@ static void ask_for_password(void)
     }
     set_signal(SIGCHLD, NULL, chld_handler);
 
-    wait = 200;
-    while (wait > 0 && (len = klogctl(SYSLOG_ACTION_SIZE_UNREAD, NULL, 0)) > 0) {
-	usleep(1000);
-	wait--;
-    }
-    wait = 0;
-
     asking = 1;				/* Show only our question about password/passphrase */
-    klogctl(SYSLOG_ACTION_CONSOLE_OFF, NULL, 0);
 
     /* pwprompt */
     list_for_each_entry(c, &cons->node, node) {
-
+	int pfd;
 	if (c->fd < 0 || !c->tty)
 	    continue;
 	(void)tcdrain(c->fd);
@@ -1369,7 +1443,7 @@ static void ask_for_password(void)
 	    struct console *d;
 	    char *message;
 	    int eightbit;
-	    int len, fdc;
+	    int len, fdc, wait;
 
 	    if (fdfifo >= 0)
 		close(fdfifo);
@@ -1381,7 +1455,7 @@ static void ask_for_password(void)
 		epoll_close_fd();
 		close(epfd);
 	    }
-            FD_ZERO(&blocked);
+	    FD_ZERO(&blocked);
 	    vc_reconnect = NULL;
 
 	    dup2(1, 2);
@@ -1406,7 +1480,6 @@ static void ask_for_password(void)
 	    set_signal(SIGINT,  NULL, SIG_DFL);
 	    set_signal(SIGTERM, NULL, SIG_DFL);
 	    set_signal(SIGSYS,  NULL, SIG_DFL);
-
 	    set_signal(SIGQUIT, NULL, SIG_IGN);
 
 	    fdc = request_tty(c->tty);
@@ -1417,6 +1490,12 @@ static void ask_for_password(void)
 	    dup2(fdc, 1);
 	    close(fdc);
 
+	    wait = 200;
+	    while (wait > 0 && (len = klogctl(SYSLOG_ACTION_SIZE_UNREAD, NULL, 0)) > 0) {
+		usleep(1000);
+		wait--;
+	    }
+	    klogctl(SYSLOG_ACTION_CONSOLE_OFF, NULL, 0);
 	again:
 	    clear_input(0);
 #if defined(__s390__) || defined(__s390x__)
@@ -1440,7 +1519,7 @@ static void ask_for_password(void)
 
 	    /* We read byte for byte */
 	    newtio = c->ctio;
-	    newtio.c_lflag &= ~ECHO;
+	    newtio.c_lflag &= ~(ECHO|ICANON);
 	    newtio.c_lflag |= ECHONL;
 	    newtio.c_cc[VTIME] = 0;
 	    newtio.c_cc[VMIN] = 1;
@@ -1463,83 +1542,43 @@ static void ask_for_password(void)
 	    password = frobnicate(password, *pwsize);
 	    _exit(0);
 	}
-    }
 
-    do {				/* Wait on any job if any */
-	int ret;
-
-	status.si_pid = 0;
-	ret = waitid(P_ALL, 0, &status, WEXITED);
-
-	if (ret == 0)
-	    break;
-
-	if (ret < 0) {
-	    if (errno == ECHILD)
-		break;
-	    if (errno == EINTR)
-		continue;
-	    error("can not wait on password asking process: %m");
-	    break;
-	}
-
-    } while (1);
-
-    asking = 0;				/* Now throw out any collected messages if any */
-    klogctl(SYSLOG_ACTION_CONSOLE_ON, NULL, 0);
-
-    list_for_each_entry(c, &cons->node, node) {
-	if (c->fd < 0)
-	    continue;
-	if (c->pid < 0)
-	    continue;
-	if (c->pid == status.si_pid)	/* Remove first reply ... */
-	    c->pid = -1;
-	else {
-	    kill(c->pid, SIGTERM);	/* and terminate the others */
-	    wait++;
-	}
-    }
-
-    sigemptyset(&set);
-    sigaddset(&set, SIGCHLD);		/* On exit we'll see SIGCHLD */
-
-    do {
-	int signum, ret;
-
-	if (wait <= 0) {
-	    asking = 0;			/* Now throw out any collected messages if any */
-	    break;
-	}
-
-	status.si_pid = 0;
-	ret = waitid(P_ALL, 0, &status, WEXITED|WNOHANG);
-
-	if (ret < 0) {
-	    if (errno == ECHILD)
-		break;
-	    if (errno == EINTR)
-		continue;
-	}
-
-	if (!ret && status.si_pid > 0) {
-	    list_for_each_entry(c, &cons->node, node) {
-		if (c->pid < 0)
-		    continue;
-		if (c->pid == status.si_pid) {
-		    c->pid = -1;
-		    wait--;
+	pfd = pidfd_open(c->pid, 0);
+	if (pfd >= 0) {
+	    epoll_addread(pfd, &epoll_pwd_done);
+	} else {
+	    siginfo_t info = {};
+	    warn("pidfd_open failed for pid %d, falling back to synchronous wait", (int)c->pid);
+	    do {
+		if (waitid(P_PID, c->pid, &info, WEXITED) == 0) {
+		    if (info.si_code == CLD_EXITED && info.si_status == 0) {
+			struct console *d;
+			
+			asking = 0;
+			if (pwd_client_fd >= 0) {
+			    (void)do_answer_password(pwd_client_fd);
+			    epoll_delete(pwd_client_fd);
+			    close(pwd_client_fd);
+			    pwd_client_fd = -1;
+			}
+			klogctl(SYSLOG_ACTION_CONSOLE_ON, NULL, 0);
+			c->pid = -1;
+			
+			/* Terminate all other password asking children for syncronious mode */
+			list_for_each_entry(d, &cons->node, node) {
+			    if (d->pid > 0 && d->pid != c->pid) {
+				kill(d->pid, SIGTERM);
+				/* Just wait to avoid being flooded with zombies */
+				waitid(P_PID, d->pid, NULL, WEXITED);
+				d->pid = -1;
+			    }
+			}
+		    } else {
+			/* Done even with errors, just to finish the loop. */
+			c->pid = -1;
+		    }
 		}
-	    }
-	    continue;
+	    } while (c->pid != -1 && errno == EINTR);
 	}
-
-	signum = sigtimedwait(&set, NULL, &timeout);
-	if (signum != SIGCHLD) {
-	    if (signum < 0 && errno == EAGAIN)
-		break;
-	}
-
-    } while (1);
+    }
 }
-
