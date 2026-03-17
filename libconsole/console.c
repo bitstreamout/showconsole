@@ -45,6 +45,7 @@
 /* Fallback for older glibc */
 
 #ifndef SYS_pidfd_open
+# include <asm/unistd.h>
 # ifdef __NR_pidfd_open
 #  define SYS_pidfd_open __NR_pidfd_open
 # else
