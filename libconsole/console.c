@@ -1055,7 +1055,7 @@ static void __attribute__((noinline)) epoll_pwd_done(int fd)
 
 	if (info.si_code == CLD_EXITED && info.si_status == 0) {
 	    asking = 0;		/* Success! */
-	    
+
 	    /* 1. Deliver the password and close the socket as well */
 	    if (pwd_client_fd >= 0) {
 		(void)do_answer_password(pwd_client_fd);
@@ -1063,10 +1063,10 @@ static void __attribute__((noinline)) epoll_pwd_done(int fd)
 		close(pwd_client_fd);
 		pwd_client_fd = -1;
 	    }
-    
+
 	    /* 2. Enable Kernel-Logging to the console Konsole */
 	    klogctl(SYSLOG_ACTION_CONSOLE_ON, NULL, 0);
-    
+
 	    /* 3. Close other waiting password processes */
 	    list_for_each_entry(c, &cons->node, node) {
 		if (c->pid > 0 && c->pid != info.si_pid) {
@@ -1175,6 +1175,18 @@ static void socket_handler(int fd)
 
     switch (magic[0]) {
     case MAGIC_ASK_PWD:
+#ifdef DEBUG
+	warn("Got password request for prompt >%s<", arg);
+#endif
+	if (asking) {
+	    /*
+	     * This should not happen as Systemd serialize password requests
+	     */
+	    const char *nck = ANSWER_NCK;
+	    safeout(fd, nck, strlen(nck)+1, SSIZE_MAX);
+	    warn("Got further password request with prompt >%s<", arg);
+	    goto job;
+	}
 
 	if (!password) {
 	    void *tmp = shm_malloc(MAX_PASSLEN+sizeof(int32_t));
@@ -1191,7 +1203,9 @@ static void socket_handler(int fd)
 	goto job;
 
     case MAGIC_CACHED_PWD:
-
+#ifdef DEBUG
+	warn("Got cached password request");
+#endif
 	ret = do_answer_password(fd);
 	if (ret == 0)
 	    goto job;
