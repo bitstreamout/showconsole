@@ -108,12 +108,12 @@ struct console {
 };
 
 #define CON_PRINTBUFFER	(1)
-#define CON_CONSDEV	(2) /* Last on the command line */
+#define CON_CONSDEV	(2)	/* Last on the kernel command line */
 #define CON_ENABLED	(4)
 #define CON_BOOT	(8)
-#define CON_ANYTIME	(16) /* Safe to call when cpu is offline */
-#define CON_BRL		(32) /* Used for a braille device */
-#define CON_SERIAL	(64) /* Serial line */
+#define CON_ANYTIME	(16)	/* Safe to call when cpu is offline */
+#define CON_BRL		(32)	/* Used for a braille device */
+#define CON_SERIAL	(64)	/* Serial line */
 
 extern sigset_t omask;
 extern int final;

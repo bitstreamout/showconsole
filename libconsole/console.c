@@ -1458,7 +1458,7 @@ static void ask_for_password(void)
 	    struct console *d;
 	    char *message;
 	    int eightbit;
-	    int len, fdc, wait;
+	    int len, fdc;
 
 	    if (fdfifo >= 0)
 		close(fdfifo);
@@ -1476,7 +1476,7 @@ static void ask_for_password(void)
 	    dup2(1, 2);
 	    dup2(c->fd, 0);
 	    dup2(c->fd, 1);
-	    currenttty = c->tty;
+	    currenttty = c->tty;	/* Used in readpw() in case of an error */
 
 	    list_for_each_entry(d, &cons->node, node)
 		if (d->fd >= 0) {
@@ -1503,14 +1503,17 @@ static void ask_for_password(void)
 
 	    dup2(fdc, 0);
 	    dup2(fdc, 1);
-	    close(fdc);
+	    if (fdc > 1)
+		close(fdc);
 
-	    wait = 200;
-	    while (wait > 0 && (len = klogctl(SYSLOG_ACTION_SIZE_UNREAD, NULL, 0)) > 0) {
-		usleep(1000);
-		wait--;
+	    if (c->flags & CON_CONSDEV) {
+		int wait = 200;
+		while (wait > 0 && (len = klogctl(SYSLOG_ACTION_SIZE_UNREAD, NULL, 0)) > 0) {
+		    usleep(1000);
+		    wait--;
+		}
+		klogctl(SYSLOG_ACTION_CONSOLE_OFF, NULL, 0);
 	    }
-	    klogctl(SYSLOG_ACTION_CONSOLE_OFF, NULL, 0);
 	again:
 	    clear_input(0);
 #if defined(__s390__) || defined(__s390x__)
