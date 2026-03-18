@@ -43,7 +43,6 @@ select strictreply in "Yes" "No"; do
 	    exit 1;;
     esac
 done
-exit 1
 sed -ri "s/^(MAJOR[[:space:]]*:=[[:space:]]*)[0-9]+/\1${VTAG[0]}/;s/^(MINOR[[:space:]]*:=[[:space:]]*)[0-9]+/\1${VTAG[1]}/" Makefile || exit 1
 git add Makefile
 git commit -m "Release: bump version to ${VTAG[0]}.${VTAG[1]}"
