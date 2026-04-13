@@ -45,6 +45,24 @@ getty on that character device).
 .B \-f
 This option is used at shutdown, that is reboot, halt, and poweroff
 but also for kexec.
+.SH BOOT PARAMETERS
+On 
+.B s390x
+(64-bit IBM System/390) and
+.B z/Architecture
+the
+.B blogd
+knows currently one kernel command line parameter
+.BI blog\&.timeout= <integer>
+with
+.I <integer>
+the timeout for the
+.B MORE
+prompt on
+.I 3215
+console.  If set to
+.I 0
+the boot process does not need manual support.
 .SH SIGNALS
 .B blogd
 knows a few signal to contol its behavior.

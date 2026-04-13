@@ -15,7 +15,7 @@
 #include "libconsole.h"
 
 /*
- * push and popd direcotry changes
+ * push and popd directory changes
  */
 
 typedef struct pwd_struct {

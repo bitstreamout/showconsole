@@ -216,7 +216,7 @@ static int reconnect(int fd)
 	    if (newfd != c->fd)
 		close(newfd);
 	    epoll_addwrite(c->fd, &epoll_write_watchdog);
-            ret = 1;
+	    ret = 1;
 #if defined(__s390__) || defined(__s390x__)
 	    if (major(c->dev) == 4 && minor(c->dev) == 64)
 		break;
@@ -345,23 +345,29 @@ int main(int argc, char *argv[])
 	    o.c_cc[VMIN]  = CMIN;
 	}
 #if defined(__s390__) || defined(__s390x__)
-	if (major(c->dev) == 4 && minor(c->dev) == 64 && final == 0) {
-	    char *msg;
-	    int vmcp;
+	if ((c->flags & CON_3215) && final == 0) {
+	    char *timeout;
 
-	    vmcp = openvmcp();
-	    if (vmcp) {
-		msg = queryterm(vmcp);
-		if (msg) {
-		    parseterm(msg);
-		    free(msg);
-		    setterm(vmcp);
+	    parse_cmdline();	/* Parse the kernel command line for blog.<key>=<val> */
+	    timeout = value_cmdline("timeout");
+
+	    if (timeout && isinteger(timeout)) {
+		int vmcp = openvmcp();
+		if (vmcp) {
+		    char *msg = queryterm(vmcp);
+		    if (msg) {
+			parseterm(msg);
+			free(msg);
+			setterm(vmcp, timeout);
+		    }
+		    close(vmcp);
+		    atexit(vmcp_handler);	/* Register vmcp restore exit handler */
 		}
-		close(vmcp);
-		atexit(vmcp_handler);	/* Register vmcp restore exit handler */
+		ioctl(c->fd, TIOCCBRK);
+		usleep(1000);
 	    }
-	    ioctl(c->fd, TIOCCBRK);
-	    usleep(1000);
+
+	    free_cmdline();
 	}
 #endif
     }
@@ -513,7 +519,7 @@ int main(int argc, char *argv[])
 		}
 	    else {
 		flags &= ~(O_NONBLOCK);
-	        flags |=   O_NOCTTY;
+		flags |=   O_NOCTTY;
 		if (fcntl(0, F_SETFL, flags) < 0)
 		    list_for_each_entry(c, &cons->node, node) {
 			if (c->fd < 0)

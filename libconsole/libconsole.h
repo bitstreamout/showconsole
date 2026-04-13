@@ -40,6 +40,9 @@
 # ifndef  typeof
 #  define typeof		__typeof__
 # endif
+# ifndef  unused
+#  define unused		__unused__
+# endif
 #endif
 #ifndef  attribute
 # define attribute(attr)	__attribute__(attr)
@@ -104,6 +107,7 @@ struct console {
     int flags;
     int fd, tlock;
     ssize_t max_canon;
+    ssize_t (*out)(int, const void *, size_t, ssize_t);
     struct termios ltio, otio, ctio;
 };
 
@@ -114,6 +118,9 @@ struct console {
 #define CON_ANYTIME	(16)	/* Safe to call when cpu is offline */
 #define CON_BRL		(32)	/* Used for a braille device */
 #define CON_SERIAL	(64)	/* Serial line */
+#define CON_3215	(128)	/* s390x 3215 halfduplex console */
+#define CON_3270	(256)	/* s390x 3270 console */
+#define CON_SCLP	(512)	/* s390x sclp terminals */
 
 extern sigset_t omask;
 extern int final;
@@ -178,6 +185,9 @@ extern FILE *close_logging(void);
 /* proc.c */
 extern char *proc2exe(const pid_t pid);
 extern void list_fd(const pid_t pid);
+extern void parse_cmdline(void);
+extern char* value_cmdline(const char*);
+void free_cmdline(void);
 
 /* readpw.c */
 extern ssize_t readpw(int fd, char *pass, int eightbit);
@@ -203,11 +213,12 @@ extern int request_tty(const char *tty);
 
 /* vmcp.c */
 #if defined(__s390__) || defined(__s390x__)
-int openvmcp(void);
-char* queryterm(int fd);
-int setterm(int fd);
-int restoreterm(int fd);
-void parseterm(char *msg);
+extern int isinteger(const char *str);
+extern int openvmcp(void);
+extern char* queryterm(int fd);
+extern int setterm(int fd, char *tout);
+extern int restoreterm(int fd);
+extern void parseterm(char *msg);
 #endif
 
 #define MAX_PASSLEN	LINE_MAX

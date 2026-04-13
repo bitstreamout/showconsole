@@ -25,6 +25,31 @@
 #define	VMCP_SETBUF		_IOW(0x10, 2, int)
 #define	VMCP_GETCODE		_IOR(0x10, 1, int)
 
+int isinteger(const char *str)
+{
+    int errs = errno, ret = 1;
+    long attribute((unused)) val;
+    char *endptr;
+
+    errno = 0;
+    val = strtol(str, &endptr, 10);
+
+    /* Check if no digits were found at all */
+    if (str == endptr)
+	ret = 0;
+
+    /* Check for overflow or underflow */
+    if (errno == ERANGE)
+	ret = 0;
+
+    /* Check for trailing non-numeric characters (e.g., "123abc") */
+    if (*endptr != '\0')
+	ret = 0;
+
+    errno = errs;
+    return ret;
+}
+
 int openvmcp(void)
 {
     return open(VMCP_DEVICE_NODE, O_RDWR|O_NOCTTY);
@@ -41,55 +66,59 @@ char* queryterm(int fd)
     buffersize = num * pagesize;
 
     if (ioctl(fd, VMCP_SETBUF, &buffersize) == -1)
-        goto out;
+	goto out;
     do {
 	rc = write(fd, question, strlen(question));
-        if (rc < 0) {
+	if (rc < 0) {
 	    if (errno != EINTR)
 		goto out;
-        }
+	}
     } while (rc < 0);
     if (ioctl(fd, VMCP_GETCODE, &rc) == -1)
-        goto out;
+	goto out;
     if (ioctl(fd, VMCP_GETSIZE, &buffersize) == -1)
-        goto out;
+	goto out;
     ret = (char*)malloc(buffersize);
     if (!ret)
-        goto out;
+	goto out;
     do {
 	rc = read(fd, ret, buffersize);
-        if (rc < 0) {
+	if (rc < 0) {
 	    if (errno != EINTR)
 		goto out;
-        }
+	}
     } while (rc < 0);
 out:
     return ret;
 }
 
-int setterm(int fd)
+int setterm(int fd, char *tout)
 {
-    const char* instruction = "TERMINAL MORE 0 0 HOLD OFF";
+    char *instruction;
     long pagesize = sysconf(_SC_PAGESIZE);
     int rc = 0, num, buffersize;
     int ret = -1;
+
+    if (asprintf(&instruction, "TERMINAL MORE %s 0 HOLD OFF", tout) == -1)
+	goto out;
 
     num = (strlen(instruction) + pagesize - 1)/pagesize;
     buffersize = num * pagesize;
 
     if (ioctl(fd, VMCP_SETBUF, &buffersize) == -1)
-        goto out;
+	goto out;
     do {
 	rc = write(fd, instruction, strlen(instruction));
-        if (rc < 0) {
+	if (rc < 0) {
 	    if (errno != EINTR)
 		goto out;
-        }
+	}
     } while (rc < 0);
+    free(instruction);
     if (ioctl(fd, VMCP_GETCODE, &rc) == -1)
-        goto out;
+	goto out;
     if (ioctl(fd, VMCP_GETSIZE, &buffersize) == -1)
-        goto out;
+	goto out;
     if (rc == 0 && buffersize == 0)
 	ret = 0;
 out:
@@ -114,19 +143,19 @@ int restoreterm(int fd)
     buffersize = num * pagesize;
 
     if (ioctl(fd, VMCP_SETBUF, &buffersize) == -1)
-        goto out;
+	goto out;
     do {
 	rc = write(fd, instruction, strlen(instruction));
-        if (rc < 0) {
+	if (rc < 0) {
 	    if (errno != EINTR)
 		goto out;
-        }
+	}
     } while (rc < 0);
     free(instruction);
     if (ioctl(fd, VMCP_GETCODE, &rc) == -1)
-        goto out;
+	goto out;
     if (ioctl(fd, VMCP_GETSIZE, &buffersize) == -1)
-        goto out;
+	goto out;
     if (rc == 0 && buffersize == 0)
 	ret = 0;
 out:

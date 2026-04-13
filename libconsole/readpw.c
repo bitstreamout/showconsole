@@ -39,15 +39,32 @@ ssize_t readpw(int fd, char *pass, int eightbit)
     struct chardata cp;
     int ret;
 
-    cp.eol = *ptr = '\0'; 
+    cp.eol = *ptr = '\0';
 
     while (cp.eol == '\0') {
 	char ascval, c;
 	errno = 0;
-
+#if 0
+	/*
+	 * Sidemark: DO NOT USE THIS ON 3215 OF S390
+	 * Wait in input without busy waiting.
+	 * If we use a negative timeout the ppoll() blocks
+	 * up to the point where even a halfduplex 3215
+	 * console provides input data.
+	 */
+	if (!can_read(fd, -1)) {
+	    if (errno == EINTR)
+		continue;
+	    warn("can_read failed on %s: %m", currenttty);
+	    return -1;
+	}
+#endif
 	ret = read(fd, &c, 1);
 	if (ret < 0) {
 	    if (errno == EINTR || errno == EAGAIN) {
+		/*
+		 * Due to can_read() EAGAIN should not happen.
+		 */
 		usleep(250000);
 		continue;
 	    }

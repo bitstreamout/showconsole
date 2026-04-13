@@ -1,8 +1,9 @@
 /*
  * console.c
  *
- * Copyright 2000,2015,2025 Werner Fink, 2000 SuSE GmbH Nuernberg, Germany.
- * Copyright 2015 SuSE Linux GmbH.
+ * Copyright 2000,2015,2025,2026 Werner Fink, 2000 SUSE GmbH Nuernberg, Germany.
+ * Copyright 2015 SUSE Linux GmbH.
+ * Copyright 2026 SUSE Software Solutions Germany GmbH
  *
  * This source is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -155,7 +156,7 @@ static void chld_handler(int sig) {
  * The stdio file pointer for our log file
  */
 struct console *cons;
-static FILE * flog = NULL;
+FILE * flog = NULL;
 static int fdread  = -1;
 static int fdfifo  = -1;
 
@@ -260,6 +261,135 @@ static ssize_t copyout (int fd, const void *ptr, size_t s, ssize_t max)
     errno = saveerr;
     return r;
 }
+
+#if defined(__s390__) || defined(__s390x__)
+static ssize_t copyout3215 (int fd, const void *ptr, size_t cnt, ssize_t max)
+{
+    /*
+     * Workaround for s390x console mode 3215:
+     * 1. 3215 can not handle carriage return (\r). Instead of just dropping it,
+     * we translate it to a newline (\n) if the line is not empty, to simulate
+     * overwriting without concatenating strings indefinitely.
+     * 2. Be sure that there is a \n after 130 chars to flush the device 3215 driver.
+     */
+    const char *conbuf = (const char *)ptr;
+    /*
+     * Missing: detect lines across chunks
+     */
+    size_t line_start = 0;
+    size_t i = 0;
+    ssize_t ret, total_written = 0;
+    static int skip_next_lf = 0;	/* It remembers \r\n across chunk boundaries. */
+
+    while (i < cnt) {
+	size_t current_line_len;
+	char linebuf[132];		/* For atomar write: 130 char max + \n + rest */
+
+	/* 0. Catch CRLF across chunks */
+	if (skip_next_lf && conbuf[i] == '\n') {
+	    skip_next_lf = 0;
+	    line_start = i+1;
+	    i++;
+	    continue;
+	}
+	skip_next_lf = 0;
+
+	current_line_len = i - line_start;
+
+	/* 1. Search for end of line (could be \n, \r or 130 char limit reached) */
+	if (conbuf[i] == '\n' || conbuf[i] == '\r') {
+	    if (current_line_len > 0) {
+		memcpy(linebuf, &conbuf[line_start], current_line_len);
+		linebuf[current_line_len] = '\n';
+
+		ret = copyout(fd, linebuf, current_line_len + 1, max);
+		if (ret < 0)
+		    goto error;
+		total_written += ret;
+	    } else if (conbuf[i] == '\n') {
+		/*
+		 * Only create a blank line with a true \n!
+		 * An isolated \r at the beginning of a line will be silently ignored.
+		 */
+		ret = copyout(fd, "\n", 1, max);
+		if (ret < 0)
+		    goto error;
+		total_written += ret;
+	    }
+
+	    if (conbuf[i] == '\r') {
+		if ((i+1 < cnt) && conbuf[i+1] == '\n') {
+		    i++;		/* Ignore CRLF in the same chunk */
+		} else if (i+1 == cnt) {
+		    skip_next_lf = 1;	/* Set marker for the next chunk at 0. */
+		}
+	    }
+
+	    line_start = i+1;
+	    i = line_start;
+	    continue;
+	}
+
+	/* 2. Ouch: Reached 130 without any newline */
+	if (current_line_len >= 130) {
+	    /* Are there any spaces in the last 130 characters? */
+	    size_t last_space = i;
+	    int found_space = 0;
+
+	    for (size_t s = i; s > line_start; s--) {
+		if (conbuf[s] == ' ') {
+		    last_space = s;
+		    found_space = 1;
+		    break;
+		}
+	    }
+
+	    if (found_space) {
+		/* Copy up to the spaces */
+		size_t write_len = last_space - line_start;
+		memcpy(linebuf, &conbuf[line_start], write_len);
+		linebuf[write_len] = '\n';
+
+		ret = copyout(fd, &conbuf[line_start], write_len + 1, max);
+		if (ret < 0)
+		    goto error;
+		total_written += ret;
+
+		line_start = last_space + 1; /* continue after the space */
+	    } else {
+		/* No space found -> hard newline at 130 chars */
+		memcpy(linebuf, &conbuf[line_start], 130);
+		linebuf[130] = '\n';
+
+		ret = copyout(fd, &conbuf[line_start], 130 + 1, max);
+		if (ret < 0)
+		    goto error;
+		total_written += ret;
+
+		line_start = line_start + 130;
+	    }
+	    i = line_start;
+	    continue;
+	}
+	i++;
+    }
+
+    /* 3. final write out the rest */
+    if (line_start < cnt) {
+	ret = copyout(fd, &conbuf[line_start], cnt - line_start, max);
+	if (ret < 0)
+	    goto error;
+	total_written += ret;
+    }
+
+    if (total_written != cnt)	/* We might not return more or less then we got from the outer ringbuffer */
+	total_written = cnt;
+
+    return total_written;
+error:
+    return -1;
+}
+#endif
 
 /*
  * Twice used: safe in
@@ -452,9 +582,11 @@ static int more_input (int timeout, const int noerr)
 	ret = 1;
 
 	if (evlist[n].events & (EPOLLIN | EPOLLOUT | EPOLLRDHUP | EPOLLHUP | EPOLLERR)) {
+#ifdef DEBUG
 	    if (evlist[n].events & (EPOLLRDHUP | EPOLLHUP | EPOLLERR)) {
 		warn("epoll returned RDHUP, HUP or ERR on fd %d", fd);
 	    }
+#endif
 	    efunc(fd);
 	    continue;
 	}
@@ -609,12 +741,16 @@ void closeIO(void)
     struct console *c;
     int ret, n = 20;
 
+#ifdef DEBUG
     /* Maybe we've catched a signal, therefore */
     if (!flog && !nsigsys)
 	warn("no message logging because /var file system is not accessible");
+#endif
 
     list_for_each_entry(c, &cons->node, node) {
 	if (c->fd < 0)
+	    continue;
+	if (c->flags & CON_3215)
 	    continue;
 	(void)tcdrain(c->fd);		/* Hold in sync with console */
     }
@@ -663,6 +799,8 @@ void closeIO(void)
     list_for_each_entry(c, &cons->node, node) {
 	if (c->fd < 0)
 	    continue;
+	if (c->flags & CON_3215)
+	    continue;
 	(void)tcdrain(c->fd);
     }
     return;
@@ -680,13 +818,25 @@ static int consinitIO(struct console *newc)
 	return 0;
     }
     newc->tlock = 0;
-    newc->max_canon = _POSIX_MAX_CANON;
+#if defined(__s390__) || defined(__s390x__)
+    if (newc->flags & CON_3215)
+	newc->max_canon = 130;
+    else
+#endif
+	newc->max_canon = _POSIX_MAX_CANON;
     memset(&newc->ltio, 0, sizeof(newc->ltio));
     memset(&newc->otio, 0, sizeof(newc->otio));
     memset(&newc->ctio, 0, sizeof(newc->ctio));
 
 #if defined(__s390__) || defined(__s390x__)
-    if (major(newc->dev) == 4 && minor(newc->dev) == 64)
+    if (newc->flags & CON_3215)
+	/*
+	 * WARNING: Do not remove this early return!
+	 * The s390x 3215 console MUST remain in O_NONBLOCK mode.
+	 * Since blogd is single-threaded, setting this half-duplex device
+	 * to blocking would completely freeze the daemon as soon as the
+	 * kernel buffer fills up (e.g. during heavy \r floods from fsck).
+	 */
 	return 1;
 #endif
     if ((tflags = fcntl(newc->fd, F_GETFL)) < 0)
@@ -719,6 +869,13 @@ static int consalloc(struct console **cons, char *name, const int cflags, const 
     newc->flags = cflags;
     newc->dev = dev;
     newc->pid = -1;
+
+#if defined(__s390__) || defined(__s390x__)
+    if (newc->flags & CON_3215)
+	newc->out = copyout3215;
+    else
+#endif
+    newc->out = copyout;
 
     if (io && !consinitIO(newc)) {
 	free(newc);
@@ -804,7 +961,14 @@ void getconsoles(struct console **cons, int io)
 
 	if (sscanf(dev, "%u:%u", &maj, &min) != 2)
 	    error("can not determine device numbers for %s: %m", tty);
-
+#if defined(__s390__) || defined(__s390x__)
+	if (maj == 4 && min == 64)
+	    flags |= CON_3215;
+	if (maj == 4 && min >= 65)
+	    flags |= CON_SCLP;
+	else if (maj == 227 && min >= 1)
+	    flags |= CON_3270;
+#endif
 	consalloc(&c, tty, flags, makedev(maj, min), io);
 	free(tty);
     }
@@ -920,10 +1084,12 @@ static void epoll_console_in(int fd)
 		size_t ret;
 		if (c->fd < 0)
 		    continue;
-		ret = copyout(c->fd, thead, len, c->max_canon);
+		ret = c->out(c->fd, thead, len, c->max_canon);
 		if (ret < 1)
 		    goto flush;
 		len = ret;				/* First make write out all but Second? */
+		if (c->flags & CON_3215)
+		    continue;
 		(void)tcdrain(c->fd);			/* Write copy of input to real tty */
 	    }
 	    thead += len;
@@ -945,7 +1111,7 @@ static void epoll_console_in(int fd)
 	    size_t ret;
 	    if (c->fd < 0)
 		continue;
-	    ret = copyout(c->fd, trans, cnt, c->max_canon);
+	    ret = c->out(c->fd, trans, cnt, c->max_canon);
 	    if (ret < 1) {
 		if (cnt <= (size_t)(tend - ttail)) {
 		    memcpy(ttail, trans, cnt);
@@ -953,6 +1119,8 @@ static void epoll_console_in(int fd)
 		}
 		break;
 	    }
+	    if (c->flags & CON_3215)
+		continue;
 	    (void)tcdrain(c->fd);			/* Write copy of input to real tty */
 	}
 flush:
@@ -1458,7 +1626,7 @@ static void ask_for_password(void)
 	    struct console *d;
 	    char *message;
 	    int eightbit;
-	    int len, fdc;
+	    int len, fdc, tflags;
 
 	    if (fdfifo >= 0)
 		close(fdfifo);
@@ -1506,6 +1674,15 @@ static void ask_for_password(void)
 	    if (fdc > 1)
 		close(fdc);
 
+	    /*
+	     * Mandatory: Remove none blocking mode for reading
+	     * For mainframes console required to enforce the
+	     * driver to READ CCW on 3215.
+	     */
+	    tflags = fcntl(0, F_GETFL);
+	    if (tflags >= 0)
+		fcntl(0, F_SETFL, tflags & ~O_NONBLOCK);
+
 	    if (c->flags & CON_CONSDEV) {
 		int wait = 200;
 		while (wait > 0 && (len = klogctl(SYSLOG_ACTION_SIZE_UNREAD, NULL, 0)) > 0) {
@@ -1517,11 +1694,22 @@ static void ask_for_password(void)
 	again:
 	    clear_input(0);
 #if defined(__s390__) || defined(__s390x__)
-	    if ((major(c->dev) == 4 && minor(c->dev) >= 65) ||
-		(major(c->dev) == 227 && minor(c->dev) >= 1))
+	    if (c->flags & CON_3215) {
+		/*
+		 * The 3215 console MUST have a trailing newline.
+		 * Otherwise the half-duplex driver won't flush the write buffer
+		 * and blocks the subsequent readpw() call forever.
+		 */
+		len = asprintf(&message, "\n===>> %s:\n", pwprompt);
+	    } else if (c->flags & (CON_SCLP|CON_3270)) {
+		/*
+		 * The 3270 console can do ANSI colouring and carriage returns,
+		 * as well as the sclp consoles which are a full featured ttys.
+		 */
 		len = asprintf(&message, BOLD RED "\n\r%s: " NORM, pwprompt);
-	    else
-		len = asprintf(&message, "\n\r===>> %s: ", pwprompt);
+	    } else {
+		len = asprintf(&message, "\n===>> %s: ", pwprompt);
+	    }
 #else
 	    if (c->flags & CON_SERIAL)
 		len = asprintf(&message, BOLD RED "\n\r%s: " NORM, pwprompt);
@@ -1532,12 +1720,48 @@ static void ask_for_password(void)
 		warn("can not set password prompt");
 		_exit(1);
 	    }
-	    safeout(1, message, len, c->max_canon);
+	    /*
+	     * Do not use safeout() here! safeout() drops the message
+	     * after 100ms on EAGAIN. We MUST wait and insist on writing the prompt.
+	     */
+	    {
+		size_t written = 0;
+		while (written < len) {
+		    ssize_t p = write(1, message + written, len - written);
+		    if (p < 0) {
+			if (errno == EINTR)
+			    continue;
+			if (errno == EAGAIN || errno == EWOULDBLOCK) {
+			    /* * Driver buffer is full (e.g. fsck traffic jam).
+			     * Use io.c helper to wait efficiently via ppoll()
+			     * until the terminal accepts data again.
+			     */
+			    can_write(1, 100);
+			    continue;
+			}
+			warn("can not set password prompt on %s: %m", c->tty);
+			break; /* Hard error */
+		    }
+		    written += p;
+		}
+	    }
 	    free(message);
 
 	    /* We read byte for byte */
 	    newtio = c->ctio;
+#if defined(__s390__) || defined(__s390x__)
+	    if (c->flags & CON_3270)
+		/*
+		 * ONLY the 3270 block-mode terminal MUST keep ICANON enabled!
+		 * Otherwise the tty3270 driver switches to raw mode and fails
+		 * to apply the non-display hardware attribute to the input field.
+		 */
+		newtio.c_lflag &= ~(ECHO);
+	    else
+		newtio.c_lflag &= ~(ECHO|ICANON);
+#else
 	    newtio.c_lflag &= ~(ECHO|ICANON);
+#endif
 	    newtio.c_lflag |= ECHONL;
 	    newtio.c_cc[VTIME] = 0;
 	    newtio.c_cc[VMIN] = 1;

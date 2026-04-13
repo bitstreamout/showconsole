@@ -36,7 +36,7 @@
 /*
  * The stdio file pointer for our log file
  */
-static FILE *flog = NULL;
+extern FILE *flog;
 
 /*
  * Signal control for writing on log file
@@ -634,15 +634,17 @@ void stop_logging(void)
 
 FILE *open_logging(int fd)
 {
+    FILE *log;
+
     lock(&llock);
-    flog = fdopen(fd, "a");
-    if (!flog) {
+    log = fdopen(fd, "a");
+    if (!log) {
 	unlock(&llock);
-	error("Can not open boot loggin file");
+	error("Can not open boot logging file");
     }
     unlock(&llock);
 
-    return flog;
+    return log;
 }
 
 FILE *close_logging(void)
