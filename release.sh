@@ -1,18 +1,21 @@
 #!/bin/bash
+git fetch origin || exit 1
+BRANCH=$(git symbolic-ref --short HEAD)
+
 cleanup() {
     echo -e "\n[!] Error occured. Reset Makefile..."
-    git checkout Makefile
+    git checkout origin/"$BRANCH" -- Makefile
     exit 1
 }
 trap cleanup ERR SIGINT SIGTERM
-git checkout Makefile
+
+git checkout origin/"$BRANCH" -- Makefile || exit 1
+
 if ! git diff-index --quiet HEAD --
 then
     echo "Error: uncommitted changes. PLEASE commit or stash your changes." 1>&2
     exit 1
 fi
-BRANCH=$(git symbolic-ref --short HEAD)
-git pull origin "$BRANCH" || exit 1
 
 CSTAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0")
 CVTAG=($(echo "${CSTAG}" | sed "s/^v// ; s/\./ /g"))
@@ -54,6 +57,10 @@ done
 sed -ri "s/^(MAJOR[[:space:]]*:=[[:space:]]*)[0-9]+/\1${VTAG[0]}/;s/^(MINOR[[:space:]]*:=[[:space:]]*)[0-9]+/\1${VTAG[1]}/" Makefile || exit 1
 git add Makefile
 git commit -m "Release: bump version to ${VTAG[0]}.${VTAG[1]}"
-git tag v${VTAG[0]}.${VTAG[1]}
-git push origin "${BRANCH:-master}" --tags
+git tag -a v${VTAG[0]}.${VTAG[1]}
+git push origin "${BRANCH:-master}" v${VTAG[0]}.${VTAG[1]} || exit 1
+
+git fetch origin
+git reset --hard origin/"${BRANCH:-master}"
+
 trap - ERR SIGINT SIGTERM
