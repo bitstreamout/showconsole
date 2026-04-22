@@ -353,7 +353,7 @@ int main(int argc, char *argv[])
 
 	    if (timeout && isinteger(timeout)) {
 		int vmcp = openvmcp();
-		if (vmcp) {
+		if (vmcp >=0) {
 		    char *msg = queryterm(vmcp);
 		    if (msg) {
 			parseterm(msg);
@@ -650,8 +650,11 @@ static void exit_handler (void)
 static void vmcp_handler (void)
 {
     int vmcp = openvmcp();
-    if (vmcp >= 0)
+    if (vmcp >= 0) {
 	restoreterm(vmcp);
-    close(vmcp);
+	restorespool(vmcp);
+	clearvmcp();
+	close(vmcp);
+    }
 }
 #endif

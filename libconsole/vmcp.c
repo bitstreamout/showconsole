@@ -50,14 +50,28 @@ int isinteger(const char *str)
     return ret;
 }
 
+static char *more, *hold;
+static int spooling;
+
 int openvmcp(void)
 {
     return open(VMCP_DEVICE_NODE, O_RDWR|O_NOCTTY);
 }
 
-char* queryterm(int fd)
+void clearvmcp(void)
 {
-    const char* question = "QUERY TERMINAL";
+    if (more) {
+	free(more);
+	more = NULL;
+    }
+    if (hold) {
+	free(hold);
+	hold = NULL;
+    }
+}
+
+static char* askvmcp(int fd, const char *question)
+{
     long pagesize = sysconf(_SC_PAGESIZE);
     int rc = 0, num, buffersize;
     char* ret = NULL;
@@ -92,15 +106,23 @@ out:
     return ret;
 }
 
-int setterm(int fd, char *tout)
+char* queryterm(int fd)
 {
-    char *instruction;
+    const char* question = "QUERY TERMINAL";
+    return askvmcp(fd, question);
+}
+
+char* queryspool(int fd)
+{
+    const char* question = "QUERY VIRTUAL CONSOLE";
+    return askvmcp(fd, question);
+}
+
+static int writevmcp(int fd, char *instruction)
+{
     long pagesize = sysconf(_SC_PAGESIZE);
     int rc = 0, num, buffersize;
     int ret = -1;
-
-    if (asprintf(&instruction, "TERMINAL MORE %s 0 HOLD OFF", tout) == -1)
-	goto out;
 
     num = (strlen(instruction) + pagesize - 1)/pagesize;
     buffersize = num * pagesize;
@@ -114,7 +136,6 @@ int setterm(int fd, char *tout)
 		goto out;
 	}
     } while (rc < 0);
-    free(instruction);
     if (ioctl(fd, VMCP_GETCODE, &rc) == -1)
 	goto out;
     if (ioctl(fd, VMCP_GETSIZE, &buffersize) == -1)
@@ -125,13 +146,23 @@ out:
     return ret;
 }
 
-static char *more, *hold;
+int setterm(int fd, char *tout)
+{
+    char *instruction;
+    int ret = -1;
+
+    if (asprintf(&instruction, "TERMINAL MORE %s 0 HOLD OFF", tout) == -1)
+	goto out;
+
+    ret = writevmcp(fd, instruction);
+    free(instruction);
+out:
+    return ret;
+}
 
 int restoreterm(int fd)
 {
     char* instruction;
-    long pagesize = sysconf(_SC_PAGESIZE);
-    int rc = 0, num, buffersize;
     int ret = -1;
 
     if (!more || !hold)
@@ -139,27 +170,26 @@ int restoreterm(int fd)
     if (asprintf(&instruction, "TERMINAL %s %s", more, hold) == -1)
 	goto out;
 
-    num = (strlen(instruction) + pagesize - 1)/pagesize;
-    buffersize = num * pagesize;
-
-    if (ioctl(fd, VMCP_SETBUF, &buffersize) == -1)
-	goto out;
-    do {
-	rc = write(fd, instruction, strlen(instruction));
-	if (rc < 0) {
-	    if (errno != EINTR)
-		goto out;
-	}
-    } while (rc < 0);
+    ret = writevmcp(fd, instruction);
     free(instruction);
-    if (ioctl(fd, VMCP_GETCODE, &rc) == -1)
-	goto out;
-    if (ioctl(fd, VMCP_GETSIZE, &buffersize) == -1)
-	goto out;
-    if (rc == 0 && buffersize == 0)
-	ret = 0;
 out:
     return ret;
+}
+
+int stopspool(int fd)
+{
+    char* instruction = "SPOOL CONSOLE STOP";
+    if (!spooling)
+	return 1;
+    return writevmcp(fd, instruction);
+}
+
+int restorespool(int fd)
+{
+    char* instruction = "SPOOL CONSOLE START";
+    if (!spooling)
+	return 1;
+    return writevmcp(fd, instruction);
 }
 
 void parseterm(char *msg)
@@ -179,5 +209,18 @@ void parseterm(char *msg)
 	if (strncmp("HOLD ", token, 5) == 0)
 	    hold = strdup(token);
     }
+}
+
+void parsespool(char *msg)
+{
+    spooling = 0;
+    if (strstr(msg, " TERM START ") != NULL)
+	spooling = 1;
+}
+
+void warning3215(int fd)
+{
+    (void) writevmcp(fd, "MESSAGE * WARNING: 3215 mode. Password visible!");
+    (void) writevmcp(fd, "MESSAGE * Ensure nobody is watching the screen.");
 }
 #endif

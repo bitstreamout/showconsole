@@ -215,10 +215,16 @@ extern int request_tty(const char *tty);
 #if defined(__s390__) || defined(__s390x__)
 extern int isinteger(const char *str);
 extern int openvmcp(void);
+extern void clearvmcp(void);
 extern char* queryterm(int fd);
+extern char* queryspool(int fd);
 extern int setterm(int fd, char *tout);
+extern int stopspool(int fd);
 extern int restoreterm(int fd);
+extern int restorespool(int fd);
 extern void parseterm(char *msg);
+extern void parsespool(char *msg);
+extern void warning3215(int fd);
 #endif
 
 #define MAX_PASSLEN	LINE_MAX

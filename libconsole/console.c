@@ -1627,6 +1627,7 @@ static void ask_for_password(void)
 	    char *message;
 	    int eightbit;
 	    int len, fdc, tflags;
+	    int vmcpfd = -1;
 
 	    if (fdfifo >= 0)
 		close(fdfifo);
@@ -1695,6 +1696,22 @@ static void ask_for_password(void)
 	    clear_input(0);
 #if defined(__s390__) || defined(__s390x__)
 	    if (c->flags & CON_3215) {
+		vmcpfd = openvmcp();
+		if (vmcpfd >= 0) {
+		    char *msg = queryspool(vmcpfd);
+		    if (msg) {
+			parsespool(msg);
+			free(msg);
+		    }
+		    msg = queryterm(vmcpfd);
+		    if (msg) {
+			parseterm(msg);
+			free(msg);
+		    }
+		    stopspool(vmcpfd);
+		    setterm(vmcpfd, "0");
+		    warning3215(vmcpfd);
+		}
 		/*
 		 * The 3215 console MUST have a trailing newline.
 		 * Otherwise the half-duplex driver won't flush the write buffer
@@ -1775,6 +1792,15 @@ static void ask_for_password(void)
 	    tcsetattr(0, TCSANOW, &c->ctio);
 	    safeout(1, "\n", 1, c->max_canon);
 
+#if defined(__s390__) || defined(__s390x__)
+	    if ((c->flags & CON_3215) && vmcpfd >= 0) {
+		restoreterm(vmcpfd);
+		restorespool(vmcpfd);
+		clearvmcp();
+		close(vmcpfd);
+		vmcpfd = -1;
+	    }
+#endif
 	    if (*pwsize == 0)
 		goto again;
 
