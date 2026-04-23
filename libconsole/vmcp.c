@@ -1,5 +1,9 @@
 /*
- * vmcp.c
+ * SPDX-License-Identifier: MIT
+ *
+ * vmcp.c - s390x 3215 console spool and terminal management
+ *
+ * Copyright 2026 Werner Fink, SUSE Software Solutions Germany GmbH
  *
  * Based on:
  *
