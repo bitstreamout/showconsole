@@ -1695,7 +1695,7 @@ static void ask_for_password(void)
 	again:
 	    clear_input(0);
 #if defined(__s390__) || defined(__s390x__)
-	    if (c->flags & CON_3215) {
+	    if (c->flags & (CON_3215|CON_3270)) {
 		vmcpfd = openvmcp();
 		if (vmcpfd >= 0) {
 		    char *msg = queryspool(vmcpfd);
@@ -1703,12 +1703,16 @@ static void ask_for_password(void)
 			parsespool(msg);
 			free(msg);
 		    }
-		    msg = queryterm(vmcpfd);
+		    stopspool(vmcpfd);
+		}
+	    }
+	    if (c->flags & CON_3215) {
+		if (vmcpfd >= 0) {
+		    char *msg = queryterm(vmcpfd);
 		    if (msg) {
 			parseterm(msg);
 			free(msg);
 		    }
-		    stopspool(vmcpfd);
 		    setterm(vmcpfd, "0");
 		    warning3215(vmcpfd);
 		}
@@ -1793,9 +1797,11 @@ static void ask_for_password(void)
 	    safeout(1, "\n", 1, c->max_canon);
 
 #if defined(__s390__) || defined(__s390x__)
-	    if ((c->flags & CON_3215) && vmcpfd >= 0) {
-		restoreterm(vmcpfd);
-		restorespool(vmcpfd);
+	    if (vmcpfd >= 0) {
+		if (c->flags & CON_3215)
+		    restoreterm(vmcpfd);
+		if (c->flags & (CON_3215|CON_3270))
+		    restorespool(vmcpfd);
 		clearvmcp();
 		close(vmcpfd);
 		vmcpfd = -1;
