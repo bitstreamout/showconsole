@@ -224,6 +224,13 @@ void parsespool(char *msg)
 
 void warning3215(int fd)
 {
+    /*
+     * Warning: Do not translate this test as it might inlude then so called
+     * umlauts which in fact can not be encoded for the 3215 console interface.
+     * The 3215 console driver work in fact with EBCDIC codepage and the
+     * kernel has to translate such umlauts (multi or single bytes) with the
+     * correct EBCDIC character table (for german e.g. IBM-1141 or IBM-273).
+     */
     (void) writevmcp(fd, "MESSAGE * WARNING: 3215 mode. Password visible!");
     (void) writevmcp(fd, "MESSAGE * Ensure nobody is watching the screen.");
 }
