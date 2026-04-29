@@ -22,13 +22,6 @@
 #include <sys/ioctl.h>
 #include "libconsole.h"
 
-#if defined(__s390__) || defined(__s390x__)
-
-#define	VMCP_DEVICE_NODE	"/dev/vmcp"
-#define	VMCP_GETSIZE		_IOR(0x10, 3, int)
-#define	VMCP_SETBUF		_IOW(0x10, 2, int)
-#define	VMCP_GETCODE		_IOR(0x10, 1, int)
-
 int isinteger(const char *str)
 {
     int errs = errno, ret = 1;
@@ -53,6 +46,13 @@ int isinteger(const char *str)
     errno = errs;
     return ret;
 }
+
+#if defined(__s390__) || defined(__s390x__)
+
+#define	VMCP_DEVICE_NODE	"/dev/vmcp"
+#define	VMCP_GETSIZE		_IOR(0x10, 3, int)
+#define	VMCP_SETBUF		_IOW(0x10, 2, int)
+#define	VMCP_GETCODE		_IOR(0x10, 1, int)
 
 static char *more, *hold;
 static int spooling;

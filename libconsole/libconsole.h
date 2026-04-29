@@ -212,8 +212,8 @@ extern int open_tty(const char *name, int mode);
 extern int request_tty(const char *tty);
 
 /* vmcp.c */
-#if defined(__s390__) || defined(__s390x__)
 extern int isinteger(const char *str);
+#if defined(__s390__) || defined(__s390x__)
 extern int openvmcp(void);
 extern void clearvmcp(void);
 extern char* queryterm(int fd);
