@@ -1272,7 +1272,7 @@ static void epoll_socket_answer(int fd)
 static void socket_handler(int fd)
 {
     struct ucred cred = {};
-    unsigned char magic[2];
+    unsigned char magic[2] = {0};
     const char *enqry;
     char *arg = NULL;
     socklen_t clen;
@@ -1282,32 +1282,6 @@ static void socket_handler(int fd)
 	errno = EBADFD;
 	warn("%s no connection jet", __FUNCTION__);
 	goto out;
-    }
-
-    ret = safein(fd, &magic[0], sizeof(magic));
-    if (ret < 0) {
-	warn("can not read request magic from UNIX socket");
-	goto out;
-    }
-
-    if (magic[1] == '\002') {
-	unsigned char alen;
-
-	ret = safein(fd, &alen, sizeof(unsigned char));
-	if (ret < 0) {
-	     warn("can not get message len from UNIX socket");
-	     goto out;
-	}
-
-	arg = calloc(alen, sizeof(char));
-	if (!arg)
-	    error("can not allocate memory for message from socket");
-
-	ret = safein(fd, arg, alen);
-	if (ret < 0) {
-	    warn("can not get message len from UNIX socket");
-	    goto out;
-	}
     }
 
     clen = sizeof(struct ucred);
@@ -1339,6 +1313,32 @@ static void socket_handler(int fd)
 	    warn("Connection from pid %lu user %lu", (unsigned long)cred.pid, (unsigned long)cred.uid);
 
 	goto out;
+    }
+
+    ret = safein(fd, &magic[0], sizeof(magic));
+    if (ret < 0) {
+	warn("can not read request magic from UNIX socket");
+	goto out;
+    }
+
+    if (magic[1] == '\002') {
+	unsigned char alen;
+
+	ret = safein(fd, &alen, sizeof(unsigned char));
+	if (ret < 0) {
+	     warn("can not get message len from UNIX socket");
+	     goto out;
+	}
+
+	arg = calloc(alen, sizeof(char));
+	if (!arg)
+	    error("can not allocate memory for message from socket");
+
+	ret = safein(fd, arg, alen);
+	if (ret < 0) {
+	    warn("can not get message len from UNIX socket");
+	    goto out;
+	}
     }
 
     switch (magic[0]) {
@@ -1565,7 +1565,7 @@ static void socket_handler(int fd)
 	break;
     }
 out:			/* We are done */
-    if (fd > 0) {
+    if (fd >= 0) {
 	epoll_delete(fd);
 	close(fd);
     	fd = -1;
