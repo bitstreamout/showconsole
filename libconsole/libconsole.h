@@ -145,6 +145,11 @@ extern void epoll_write_watchdog(int) attribute((noinline));
 /* chroot.c */
 extern void new_root(const char *root);
 
+/* coldstart.c */
+extern void scan_ask_directory(const char *dir_path);
+extern void send_response_to_systemd(const char *socket_path, const char *password);
+extern int coldstart_pop_request(char **message, char **socket_path);
+
 /* devices.c */
 extern char *charname(const char *dev);
 extern char *chardev(const dev_t cons);

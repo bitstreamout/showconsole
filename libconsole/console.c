@@ -497,6 +497,39 @@ static       char *     thead = temp;
 static       char *     ttail = temp;
 static volatile ssize_t tavail;
 
+static void ask_for_password(void) attribute((noinline));
+
+static int coldstart_active = 0;
+static char *coldstart_socket_path = NULL;
+
+static void coldstart_next(void)
+{
+    char *msg = NULL;
+    char *sock = NULL;
+
+    if (!coldstart_pop_request(&msg, &sock)) {
+	coldstart_active = 0;
+	return;
+    }
+
+    coldstart_socket_path = sock;
+    
+    if (pwprompt)
+	free(pwprompt);
+    pwprompt = msg;
+    
+    if (!password) {
+	void *tmp = shm_malloc(MAX_PASSLEN + sizeof(int32_t));
+	if (!tmp)
+	    error("can not allocate string for password");
+	password = (char *)tmp;
+	pwsize = (int32_t *)(tmp + MAX_PASSLEN);
+    }
+    password[0] = '\0';
+
+    ask_for_password();
+}
+
 /*
  * Prepare I/O
  */
@@ -519,6 +552,9 @@ void prepareIO(int (*rfunc)(int), const int listen, const int input)
     vc_reconnect = rfunc;
     fdsock  = listen;			/* We use only ONE socket ... see also safeout() */
     fdread  = input;
+
+    /* Phase 1: Scan for pending systemd password queries */
+    scan_ask_directory("/run/systemd/ask-password");
 
     if (fifo_name && fdfifo < 0) {
 	struct stat st;
@@ -551,6 +587,10 @@ void prepareIO(int (*rfunc)(int), const int listen, const int input)
     }
 
     (void)mlockall(MCL_FUTURE);
+
+    /* Phase 2: Start processing coldstart requests via epoll */
+    coldstart_active = 1;
+    coldstart_next();
 }
 
 /*
@@ -1229,11 +1269,22 @@ static void __attribute__((noinline)) epoll_pwd_done(int fd)
 	    asking = 0;		/* Success! */
 
 	    /* 1. Deliver the password and close the socket as well */
-	    if (pwd_client_fd >= 0) {
-		(void)do_answer_password(pwd_client_fd);
-		epoll_delete(pwd_client_fd);
-		close(pwd_client_fd);
-		pwd_client_fd = -1;
+	    if (coldstart_active) {
+		if (coldstart_socket_path) {
+		    password = frobnicate(password, *pwsize);
+		    send_response_to_systemd(coldstart_socket_path, password);
+		    password = frobnicate(password, *pwsize);
+		    
+		    free(coldstart_socket_path);
+		    coldstart_socket_path = NULL;
+		}
+	    } else {
+		if (pwd_client_fd >= 0) {
+		    (void)do_answer_password(pwd_client_fd);
+		    epoll_delete(pwd_client_fd);
+		    close(pwd_client_fd);
+		    pwd_client_fd = -1;
+		}
 	    }
 
 	    /* 2. Enable Kernel-Logging to the console Konsole */
@@ -1248,6 +1299,10 @@ static void __attribute__((noinline)) epoll_pwd_done(int fd)
 		    c->pid = -1; /* we are done now */
 		}
 	    }
+
+	    /* 4. Advance coldstart */
+	    if (coldstart_active)
+		coldstart_next();
 	}
     } else {
 	/* Clear Zombies */
