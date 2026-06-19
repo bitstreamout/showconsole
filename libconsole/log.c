@@ -182,7 +182,7 @@ static inline int thread_poll(int msec, mutex_t *outer)
 
 	if (gettimeofday(&now, NULL) == 0) {
 	    struct timespec abstime;
-	    int err;
+	    int err = 0;
 
 	    now.tv_usec += msec * 1000;
 	    while (now.tv_usec >= 1000000) {

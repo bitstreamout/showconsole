@@ -293,10 +293,12 @@ int main(int argc, char *argv[])
     if ((fd = open_tty(console, O_RDWR|O_NONBLOCK|O_NOCTTY|O_CLOEXEC)) < 0)
 	error("Can not open system console %s: %m", console);
 
-    if (fd > 0) {
+    if (fd != 0) {
 	(void)ioctl(fd, TIOCNXCL);	/* Avoid EBUSY */
 	dup2(fd, 0);
 	close(fd);
+    } else {
+	(void)ioctl(0, TIOCNXCL);
     }
 
     dup2(0, 1);

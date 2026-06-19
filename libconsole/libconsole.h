@@ -63,7 +63,7 @@
 #define weak_symbol(name)	_weak_pragma(name) _declare(name) __attribute__((weak))
 
 /* external function in program */
-extern void error (const char *fmt, ...);
+extern void error (const char *fmt, ...) __attribute__((noreturn));
 
 /* console.c */
 

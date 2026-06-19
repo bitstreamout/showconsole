@@ -36,7 +36,7 @@ extern char* currenttty;
 ssize_t readpw(int fd, char *pass, int eightbit)
 {
     char *ptr = pass;
-    struct chardata cp;
+    struct chardata cp = {0};
     int ret;
 
     cp.eol = *ptr = '\0';
