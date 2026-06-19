@@ -153,9 +153,13 @@ static void chld_handler(int sig) {
 }
 
 /*
+ * Console list
+ */
+struct console *cons = NULL;
+
+/*
  * The stdio file pointer for our log file
  */
-struct console *cons;
 FILE * flog = NULL;
 static int fdread  = -1;
 static int fdfifo  = -1;
@@ -1627,8 +1631,9 @@ static void ask_for_password(void)
 	    char *message;
 	    int eightbit;
 	    int len, fdc, tflags;
+#if defined(__s390__) || defined(__s390x__)
 	    int vmcpfd = -1;
-
+#endif
 	    if (fdfifo >= 0)
 		close(fdfifo);
 	    if (fdsock >= 0)
