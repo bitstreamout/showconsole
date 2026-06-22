@@ -138,8 +138,8 @@ extern void prepareIO(int (*rfunc)(int), const int listen, const int in);
 extern void safeIO (void);
 extern void closeIO(void);
 
-extern struct console *cons;
-extern void getconsoles(struct console **cons, int io);
+extern list_t lcons;
+extern void getconsoles(int io);
 extern void epoll_write_watchdog(int) attribute((noinline));
 
 /* chroot.c */

@@ -68,8 +68,10 @@ void list_fd(const pid_t pid)
 	if (dr->d_name[0] == '.')
 	    continue;
 	len = readlinkat(dirfd(dir), dr->d_name, &tmp[0], LINE_MAX);
-	tmp[len] = '\0';
-	fprintf(stderr, "/proc/%d/fd/%s %s\n", (int)pid, dr->d_name, tmp);
+	if (len >= 0) {
+	    tmp[len] = '\0';
+	    fprintf(stderr, "/proc/%d/fd/%s %s\n", (int)pid, dr->d_name, tmp);
+	}
     }
     closedir(dir);
 }

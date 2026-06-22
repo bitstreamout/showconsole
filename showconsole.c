@@ -83,6 +83,9 @@ int main(int argc, char *argv[])
 	if (opt && *opt++ == '-' && *opt++ == 'r' && *opt == '\0')
 	    goto out;
 
+	if (!argv[1])
+	    goto out;
+
 	if ((fd = open(argv[1], O_WRONLY|O_NOCTTY)) < 0)
 	    error("can not open %s: %m", argv[1]);
 
@@ -103,8 +106,8 @@ int main(int argc, char *argv[])
     } else if (argc > 2)
 	error("Usage: %s [-n]", myname);
 
-    getconsoles(&cons, 0);
-    list_for_each_entry(c, &cons->node, node) {
+    getconsoles(0);
+    list_for_each_entry(c, &lcons, node) {
        	if (c->flags & CON_CONSDEV) {
 	    if (numeric)
 		printf("%u %u\n", major(c->dev), minor(c->dev));

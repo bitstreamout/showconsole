@@ -45,9 +45,10 @@ int open_un_socket_and_listen(void)
 
     ret = bind(fd, &su, offsetof(struct sockaddr_un, sun_path) + 1 + strlen(su.sun_path+1));
     if (ret < 0) {
+	int err = errno;
 	close(fd);
 	fd = -1;
-	if (errno != EADDRINUSE)
+	if (err != EADDRINUSE)
 	    warn("can not bind a name to UNIX socket");
 	else
 	    fd = -2;

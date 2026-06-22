@@ -76,6 +76,7 @@ void* shm_malloc(size_t size)
     void *area;
     char *template;
     int shmfd = -1;
+    int flags = MAP_LOCKED|MAP_SHARED;
 
     if (devshm) {
 	int ret;
@@ -93,7 +94,10 @@ void* shm_malloc(size_t size)
 	    error("can not allocate shared memory object");
     }
 
-    area = mmap(NULL, size, PROT_READ|PROT_WRITE, MAP_LOCKED|MAP_SHARED|MAP_ANONYMOUS, shmfd, 0);
+    if (shmfd == -1)
+	flags |= MAP_ANONYMOUS;
+
+    area = mmap(NULL, size, PROT_READ|PROT_WRITE, flags, shmfd, 0);
     if (area == MAP_FAILED)
 	 error("can not map shared memory object into memory");
 

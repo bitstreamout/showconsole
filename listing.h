@@ -11,6 +11,9 @@
 
 #ifndef _LISTING_H_
 #define _LISTING_H_
+#ifdef DEBUG
+# include <assert.h>
+#endif
 
 #ifndef offsetof
 # define offsetof(type,memb)	__builtin_offsetof(type,memb)
@@ -18,13 +21,17 @@
 
 typedef struct list_struct {
     struct list_struct * next, * prev;
-} list_t;
+} __attribute__((may_alias)) list_t;
 
 /*
  * Insert new entry as next member.
  */
-static inline void insert (list_t * new, list_t * here)
+static inline __attribute__((always_inline)) void insert (list_t * new, list_t * here)
 {
+#ifdef DEBUG
+    assert(new != NULL && here != NULL);
+    assert(here->next != NULL && here->prev != NULL);
+#endif
     list_t * prev = here;
     list_t * next = here->next;
 
@@ -45,16 +52,26 @@ static inline void initial (list_t *head)
 /*
  * Remove entries, note that the pointer its self remains.
  */
-static inline void delete (list_t * entry)
+#define LIST_POISON1	((void *) 0x100)
+#define LIST_POISON2	((void *) 0x200)
+
+static inline __attribute__((always_inline)) void delete (list_t * entry)
 {
+#ifdef DEBUG
+    assert(entry != NULL);
+    assert(entry->next != LIST_POISON1 && entry->prev != LIST_POISON2);
+#endif
     list_t * prev = entry->prev;
     list_t * next = entry->next;
 
     next->prev = prev;
     prev->next = next;
+
+    entry->next = (list_t *)LIST_POISON1;
+    entry->prev = (list_t *)LIST_POISON2;
 }
 
-static inline void join(list_t *list, list_t *head)
+static inline __attribute__((always_inline)) void join(list_t *list, list_t *head)
 {
     list_t *first = list->next;
 
@@ -70,7 +87,7 @@ static inline void join(list_t *list, list_t *head)
     }
 }
 
-static inline int list_empty(list_t *head)
+static inline __attribute__((always_inline)) int list_empty(list_t *head)
 {
         return head->next == head;
 }
@@ -79,7 +96,7 @@ static inline int list_empty(list_t *head)
 	const typeof( ((type *)0)->member ) *__mptr = (ptr);	\
 	((type *)( (char *)(__mptr) - offsetof(type,member) )); }))
 #define list_for_each(pos, head)	\
-	for (pos = (head)->next; pos != (head); pos = pos->next)
+	for (pos = (head)->next; __builtin_prefetch(pos->next, 0, 3), pos != (head); pos = pos->next)
 #define list_for_each_prev(pos, head)	\
 	for (pos = (head)->prev; pos != (head); pos = pos->prev)
 

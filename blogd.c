@@ -61,7 +61,7 @@ static void _initialize(void)
 /*
  * Cry and exit.
  */
-void error (const char *fmt, ...)
+__attribute__((noreturn)) void error (const char *fmt, ...)
 {
     va_list ap;
     va_start(ap, fmt);
@@ -197,7 +197,7 @@ static int reconnect(int fd)
     int ret = 0, tflags;
     int olderr = errno;
 
-    list_for_each_entry(c, &cons->node, node) {
+    list_for_each_entry(c, &lcons, node) {
 	int newfd;
 
 	if (!c->tty) continue;
@@ -285,7 +285,7 @@ int main(int argc, char *argv[])
     argc -= optind;
 
     myname = program_invocation_short_name;
-    getconsoles(&cons, 1);
+    getconsoles(1);
 
     close(0);
     close(1);
@@ -307,7 +307,7 @@ int main(int argc, char *argv[])
 
     (void)ioctl(0, TIOCCONS, NULL);  /* Undo any current map if any */
 
-    list_for_each_entry(c, &cons->node, node) {
+    list_for_each_entry(c, &lcons, node) {
 	speed_t ospeed;
 	speed_t ispeed;
 	int flags;
@@ -421,7 +421,7 @@ int main(int argc, char *argv[])
     (void)restart_sig(SIGTERM, 1);
     (void)restart_sig(SIGSYS,  1);
 
-    list_for_each_entry(c, &cons->node, node) {
+    list_for_each_entry(c, &lcons, node) {
 	struct termios oldtio;
 	speed_t ospeed;
 	speed_t ispeed;
@@ -514,7 +514,7 @@ int main(int argc, char *argv[])
 	    int ret __attribute__ ((unused));
 
 	    if ((flags = fcntl(0, F_GETFL)) < 0)
-		list_for_each_entry(c, &cons->node, node) {
+		list_for_each_entry(c, &lcons, node) {
 		    if (c->fd < 0)
 			continue;
 		    ret = write(c->fd, msg, strlen(msg));
@@ -523,7 +523,7 @@ int main(int argc, char *argv[])
 		flags &= ~(O_NONBLOCK);
 		flags |=   O_NOCTTY;
 		if (fcntl(0, F_SETFL, flags) < 0)
-		    list_for_each_entry(c, &cons->node, node) {
+		    list_for_each_entry(c, &lcons, node) {
 			if (c->fd < 0)
 			    continue;
 			ret = write(c->fd, msg, strlen(msg));
@@ -542,7 +542,7 @@ int main(int argc, char *argv[])
 	    close(pipefd[0]);
 	if (pipefd[1] >= 0)
 	    close(pipefd[1]);
-	list_for_each_entry(c, &cons->node, node) {
+	list_for_each_entry(c, &lcons, node) {
 	    const char *msg = "blogd: can not fork to become daemon: ";
 	    const char *err = strerror(errno);
 	    int ret __attribute__ ((unused));
@@ -559,7 +559,7 @@ int main(int argc, char *argv[])
 	close(ptm);
 	if (pipefd[1] >= 0)
 	    close(pipefd[1]);
-	list_for_each_entry(c, &cons->node, node) {
+	list_for_each_entry(c, &lcons, node) {
 	    if (c->fd > 0) {
 		close(c->fd);
 		c->fd = -1;
@@ -606,7 +606,7 @@ static void exit_handler (void)
     if (show_status == 0 && kill (1, SIGRTMIN+20) < 0)
 	warn("could not tell system to hode its status");
 
-    list_for_each_entry(c, &cons->node, node) {
+    list_for_each_entry(c, &lcons, node) {
 	if (c->fd > 0) {
 	    if (c->tlock)	/* write back old setup  */
 		tcsetattr(c->fd, TCSADRAIN, &c->otio);

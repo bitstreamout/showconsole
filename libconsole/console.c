@@ -155,7 +155,22 @@ static void chld_handler(int sig) {
 /*
  * Console list
  */
-struct console *cons = NULL;
+list_t lcons = { &(lcons), &(lcons) };
+
+static __attribute__((destructor)) void lcons_shutdown(void)
+{
+    struct console *c, *n;
+
+    if (list_empty(&lcons))
+	return;
+
+    list_for_each_entry_safe(c, n, &lcons, node) {
+	delete(&c->node);
+	if (c->fd >= 0)
+	    close(c->fd);
+	free(c);
+    }
+}
 
 /*
  * The stdio file pointer for our log file
@@ -580,7 +595,7 @@ void prepareIO(int (*rfunc)(int), const int listen, const int input)
     if (fdsock >= 0)
 	epoll_addread(fdsock, &epoll_socket_accept);
 
-    list_for_each_entry(c, &cons->node, node) {
+    list_for_each_entry(c, &lcons, node) {
 	if (c->fd < 0)
 	    continue;
 	epoll_addwrite(c->fd, &epoll_write_watchdog);
@@ -791,10 +806,10 @@ void closeIO(void)
 	warn("no message logging because /var file system is not accessible");
 #endif
 
-    list_for_each_entry(c, &cons->node, node) {
+    list_for_each_entry(c, &lcons, node) {
 	if (c->fd < 0)
 	    continue;
-	if (c->flags & CON_3215)
+	if (c->flags & (CON_3215|CON_SERIAL))
 	    continue;
 	(void)tcdrain(c->fd);		/* Hold in sync with console */
     }
@@ -837,13 +852,21 @@ void closeIO(void)
     if (epfd >= 0)
 	close(epfd);
 
-    if (password)
+    if (password) {
 	memset(password, 0, MAX_PASSLEN);
+        munmap(password, MAX_PASSLEN+sizeof(int32_t));
+        password = NULL;
+    }
 
-    list_for_each_entry(c, &cons->node, node) {
+    if (pwprompt) {
+	free(pwprompt);
+	pwprompt = NULL;
+    }
+
+    list_for_each_entry(c, &lcons, node) {
 	if (c->fd < 0)
 	    continue;
-	if (c->flags & CON_3215)
+	if (c->flags & (CON_3215|CON_SERIAL))
 	    continue;
 	(void)tcdrain(c->fd);
     }
@@ -883,6 +906,9 @@ static int consinitIO(struct console *newc)
 	 */
 	return 1;
 #endif
+    if (newc->flags & CON_SERIAL)
+	return 1;	/* Keep serial console devices non-blocking to prevent freezes */
+
     if ((tflags = fcntl(newc->fd, F_GETFL)) < 0)
 	warn("can not get terminal flags of %s", newc->tty);
 
@@ -896,7 +922,6 @@ static int consinitIO(struct console *newc)
 }
 
 /* Allocate a console */
-static list_t lcons = { &(lcons), &(lcons) };
 static int consalloc(struct console **cons, char *name, const int cflags, const dev_t dev, int io)
 {
     struct console *newc;
@@ -936,7 +961,7 @@ static int consalloc(struct console **cons, char *name, const int cflags, const 
     return 1;
 }
 
-void getconsoles(struct console **cons, int io)
+void getconsoles(int io)
 {
     static const struct {
 	short flag;
@@ -958,10 +983,6 @@ void getconsoles(struct console **cons, int io)
     int fd;
 #endif
     int items;
-
-
-    if (!cons)
-	error("error: console pointer empty");
 
     fc = fopen("/proc/consoles", "re");
     if (!fc) {
@@ -1022,7 +1043,6 @@ void getconsoles(struct console **cons, int io)
     if (!c)
 	goto err;
 
-    *cons = c;
     return;
 err:
 #ifdef TIOCGDEV
@@ -1039,7 +1059,6 @@ err:
 	    error("/dev/console is not a valid fallback\n");
 	free(tty);
 
-	*cons = c;
 	return;
     }
 fallback:
@@ -1051,8 +1070,6 @@ fallback:
     if (!consalloc(&c, tty, CON_CONSDEV, makedev(TTYAUX_MAJOR, 1), io))
 	error("/dev/console is not a valid fallback\n");
     free(tty);
-
-    *cons = c;
 }
 
 /*
@@ -1070,7 +1087,7 @@ static void epoll_console_in(int fd)
     	int saveerr = errno;
 
 	if (fdc < 0) {
-	    list_for_each_entry(c, &cons->node, node) {
+	    list_for_each_entry(c, &lcons, node) {
 		if (c->flags & CON_CONSDEV) {
 		    fdc = c->fd;
 		    break;
@@ -1088,7 +1105,7 @@ static void epoll_console_in(int fd)
 
 	parselog(trans, cnt);				/* Parse and make copy of the input */
 
-	list_for_each_entry(c, &cons->node, node) {
+	list_for_each_entry(c, &lcons, node) {
 	    int len;
 	    char *mesg;
 	    if (c->fd < 0)
@@ -1124,7 +1141,7 @@ static void epoll_console_in(int fd)
 	    if (tavail > TRANS_BUFFER_SIZE)
 		len = TRANS_BUFFER_SIZE;
 
-	    list_for_each_entry(c, &cons->node, node) {
+	    list_for_each_entry(c, &lcons, node) {
 		size_t ret;
 		if (c->fd < 0)
 		    continue;
@@ -1132,9 +1149,6 @@ static void epoll_console_in(int fd)
 		if (ret < 1)
 		    goto flush;
 		len = ret;				/* First make write out all but Second? */
-		if (c->flags & CON_3215)
-		    continue;
-		(void)tcdrain(c->fd);			/* Write copy of input to real tty */
 	    }
 	    thead += len;
 
@@ -1151,7 +1165,7 @@ static void epoll_console_in(int fd)
 	    }
 	}
 
-	list_for_each_entry(c, &cons->node, node) {
+	list_for_each_entry(c, &lcons, node) {
 	    size_t ret;
 	    if (c->fd < 0)
 		continue;
@@ -1163,9 +1177,6 @@ static void epoll_console_in(int fd)
 		}
 		break;
 	    }
-	    if (c->flags & CON_3215)
-		continue;
-	    (void)tcdrain(c->fd);			/* Write copy of input to real tty */
 	}
 flush:
 	flushlog();
@@ -1291,7 +1302,7 @@ static void __attribute__((noinline)) epoll_pwd_done(int fd)
 	    klogctl(SYSLOG_ACTION_CONSOLE_ON, NULL, 0);
 
 	    /* 3. Close other waiting password processes */
-	    list_for_each_entry(c, &cons->node, node) {
+	    list_for_each_entry(c, &lcons, node) {
 		if (c->pid > 0 && c->pid != info.si_pid) {
 		    kill(c->pid, SIGTERM);
 		}
@@ -1306,7 +1317,7 @@ static void __attribute__((noinline)) epoll_pwd_done(int fd)
 	}
     } else {
 	/* Clear Zombies */
-	list_for_each_entry(c, &cons->node, node) {
+	list_for_each_entry(c, &lcons, node) {
 	    if (c->pid == info.si_pid) {
 		c->pid = -1;
 	    }
@@ -1375,7 +1386,7 @@ static void socket_handler(int fd)
     }
 
     ret = safein(fd, &magic[0], sizeof(magic));
-    if (ret < 0) {
+    if (ret < (ssize_t)sizeof(magic)) {
 	warn("can not read request magic from UNIX socket");
 	goto out;
     }
@@ -1384,7 +1395,7 @@ static void socket_handler(int fd)
 	unsigned char alen;
 
 	ret = safein(fd, &alen, sizeof(unsigned char));
-	if (ret < 0) {
+	if (ret < (ssize_t)sizeof(unsigned char)) {
 	     warn("can not get message len from UNIX socket");
 	     goto out;
 	}
@@ -1394,7 +1405,7 @@ static void socket_handler(int fd)
 	    error("can not allocate memory for message from socket");
 
 	ret = safein(fd, arg, alen);
-	if (ret < 0) {
+	if (ret < (ssize_t)alen) {
 	    warn("can not get message len from UNIX socket");
 	    goto out;
 	}
@@ -1402,6 +1413,11 @@ static void socket_handler(int fd)
 
     switch (magic[0]) {
     case MAGIC_ASK_PWD:
+	if (magic[1] != '\002') {
+	    errno = EINVAL;
+	    warn("Got password invalid request for prompt");
+	    goto out;
+	}
 #ifdef DEBUG
 	warn("Got password request for prompt >%s<", arg);
 #endif
@@ -1440,6 +1456,11 @@ static void socket_handler(int fd)
 	break;
 
     case MAGIC_CHROOT:
+	if (magic[1] != '\002') {
+	    errno = EINVAL;
+	    warn("Got password invalid chroot request");
+	    goto out;
+	}
 
 	new_root(arg);
 
@@ -1478,7 +1499,7 @@ static void socket_handler(int fd)
 	if (fdread >= 0) {
 	    struct console *c;
 
-	    list_for_each_entry(c, &cons->node, node) {
+	    list_for_each_entry(c, &lcons, node) {
 		if (c->flags & CON_CONSDEV) {
 		    if (c->fd > 0) {
 			epoll_delete(fdread);
@@ -1504,7 +1525,7 @@ static void socket_handler(int fd)
 	if (fdread < 0) {
 	    struct console *c;
 
-	    list_for_each_entry(c, &cons->node, node) {
+	    list_for_each_entry(c, &lcons, node) {
 		if (c->flags & CON_CONSDEV) {
 		    if (c->fd > 0) {
 			char ptsname[NAME_MAX+1];
@@ -1652,7 +1673,7 @@ static void ask_for_password(void)
     struct console *c;
     size_t len;
 
-    if (!pwprompt && !*pwprompt)
+    if (!pwprompt || !*pwprompt)
 	return;
 
     len = strlen(pwprompt);
@@ -1670,7 +1691,7 @@ static void ask_for_password(void)
     asking = 1;				/* Show only our question about password/passphrase */
 
     /* pwprompt */
-    list_for_each_entry(c, &cons->node, node) {
+    list_for_each_entry(c, &lcons, node) {
 	int pfd;
 	if (c->fd < 0 || !c->tty)
 	    continue;
@@ -1707,7 +1728,7 @@ static void ask_for_password(void)
 	    dup2(c->fd, 1);
 	    currenttty = c->tty;	/* Used in readpw() in case of an error */
 
-	    list_for_each_entry(d, &cons->node, node)
+	    list_for_each_entry(d, &lcons, node)
 		if (d->fd >= 0) {
 		    close(d->fd);
 		    d->fd = -1;
@@ -1899,7 +1920,7 @@ static void ask_for_password(void)
 			c->pid = -1;
 			
 			/* Terminate all other password asking children for syncronious mode */
-			list_for_each_entry(d, &cons->node, node) {
+			list_for_each_entry(d, &lcons, node) {
 			    if (d->pid > 0 && d->pid != c->pid) {
 				kill(d->pid, SIGTERM);
 				/* Just wait to avoid being flooded with zombies */

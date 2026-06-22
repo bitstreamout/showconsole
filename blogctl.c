@@ -19,7 +19,7 @@
 /*
  * Cry and exit.
  */
-void error (const char *fmt, ...)
+__attribute__((noreturn)) void error (const char *fmt, ...)
 {
     va_list ap;
     va_start(ap, fmt);
