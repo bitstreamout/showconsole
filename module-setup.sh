@@ -12,19 +12,23 @@ install() {
     inst_multiple blogd blogctl
     inst_multiple -o \
 	$systemdsystemunitdir/blog.service \
+	$systemdsystemunitdir/plymouth-start.service \
 	$systemdsystemunitdir/blog-halt.service \
 	$systemdsystemunitdir/blog-kexec.service \
 	$systemdsystemunitdir/blog-poweroff.service \
 	$systemdsystemunitdir/blog-reboot.service \
 	$systemdsystemunitdir/blog-quit.service \
+	$systemdsystemunitdir/plymouth-quit.service \
+	$systemdsystemunitdir/plymouth-quit-wait.service \
 	$systemdsystemunitdir/blog-store-messages.service \
+	$systemdsystemunitdir/plymouth-read-write.service \
 	$systemdsystemunitdir/blog-switch-initramfs.service \
 	$systemdsystemunitdir/blog-switch-root.service \
 	$systemdsystemunitdir/blog-umount.service \
 	$systemdsystemunitdir/systemd-ask-password-blog.path \
 	$systemdsystemunitdir/systemd-ask-password-blog.service \
 	$systemdsystemunitdir/systemd-vconsole-setup.service
-    for t in sysinit rescue shutdown emergency initrd-switch-root halt kexec poweroff reboot
+    for t in sysinit rescue emergency initrd-switch-root halt kexec poweroff reboot
     do
 	test  -d "${initdir}${systemdsystemunitdir}/${t}.target.wants" && continue
 	mkdir -p "${initdir}${systemdsystemunitdir}/${t}.target.wants"
@@ -34,7 +38,7 @@ install() {
 	ln_r "${systemdsystemunitdir}/${s}" "${systemdsystemunitdir}/rescue.target.wants/${s}"
 	ln_r "${systemdsystemunitdir}/${s}" "${systemdsystemunitdir}/emergency.target.wants/${s}"
     done
-    for s in blog.service blog-store-messages.service
+    for s in blog.service plymouth-start.service blog-store-messages.service plymouth-read-write.service
     do
 	ln_r "${systemdsystemunitdir}/${s}" "${systemdsystemunitdir}/sysinit.target.wants/${s}"
     done
@@ -48,12 +52,12 @@ install() {
 	test  -d "${initdir}${systemdsystemunitdir}/${t}.wants" && continue
 	mkdir -p "${initdir}${systemdsystemunitdir}/${t}.wants"
     done
-    for s in blog.service blog-switch-root.service
-    do
-	ln_r "${systemdsystemunitdir}/${s}" "${systemdsystemunitdir}/initrd-switch-root.target.wants/${s}"
-    done
     for s in systemd-vconsole-setup.service
     do
 	ln_r "${systemdsystemunitdir}/${s}" "${systemdsystemunitdir}/systemd-ask-password-blog.service.wants/${s}"
+    done
+    for s in blog.service plymouth-start.service blog-switch-root.service
+    do
+	ln_r "${systemdsystemunitdir}/${s}" "${systemdsystemunitdir}/initrd-switch-root.target.wants/${s}"
     done
 }

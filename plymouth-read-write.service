@@ -1,0 +1,13 @@
+[Unit]
+Description=Plymouth Write Out Compatibility Shim
+DefaultDependencies=no
+After=local-fs.target
+Before=sysinit.target
+ConditionPathExists=!/etc/initrd-release
+Requires=blog-store-messages.service
+After=blog-store-messages.service
+
+[Service]
+Type=oneshot
+ExecStart=/bin/true
+RemainAfterExit=yes

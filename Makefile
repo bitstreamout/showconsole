@@ -153,12 +153,14 @@ install:	$(TODO)
 	ln_r () { \
 	    local rel="$$(realpath -m --relative-to=$${2%/*}/ $${1%/*}/)"; \
 	    ln -sf $${rel}/$${1##*/} $${initdir}$${2}; }; \
-	. ./module-setup.sh ; \
+	. ./module-setup.sh; \
 	set -xe; install
 	$(MKDIR)	$(DESTDIR)$(SYSDUNITS)/local-fs-pre.target.wants
 	$(MKDIR)	$(DESTDIR)$(SYSDUNITS)/default.target.wants
 	$(LINK) ../blog-umount.service	$(DESTDIR)$(SYSDUNITS)/local-fs-pre.target.wants/
 	$(LINK) ../blog-quit.service	$(DESTDIR)$(SYSDUNITS)/default.target.wants/
+	$(LINK) ../plymouth-quit.service	$(DESTDIR)$(SYSDUNITS)/default.target.wants/
+	$(LINK) ../plymouth-quit-wait.service	$(DESTDIR)$(SYSDUNITS)/default.target.wants/
 
 #
 # Make distribution

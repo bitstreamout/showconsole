@@ -1,19 +1,19 @@
 [Unit]
-Description=Start Blogd at System Bootup
+Description=Start Blogd Core Engine
 DefaultDependencies=no
 Wants=systemd-ask-password-blog.path systemd-vconsole-setup.service
 After=systemd-vconsole-setup.service systemd-udev-trigger.service systemd-udevd.service
 Before=systemd-ask-password-blog.service
 ConditionKernelCommandLine=!blog.enable=0
+ConditionKernelCommandLine=!plymouth.enable=0
 ConditionVirtualization=!container
 ConditionPathExists=/dev/console
-Provides=plymouth-start.service
 IgnoreOnIsolate=true
 RefuseManualStart=true
 
 [Service]
+ExecStart=/sbin/blogd
 Type=forking
 RemainAfterExit=yes
-KillMode=mixed
+KillMode=none
 SendSIGKILL=no
-ExecStart=/sbin/blogd

@@ -1,0 +1,11 @@
+[Unit]
+Description=Plymouth Quit Wait Compatibility Shim
+DefaultDependencies=no
+After=rc-local.service blog.service systemd-user-sessions.service
+Requires=blog-quit.service
+After=blog-quit.service
+
+[Service]
+Type=oneshot
+ExecStart=/bin/true
+RemainAfterExit=yes

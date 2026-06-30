@@ -603,9 +603,11 @@ void prepareIO(int (*rfunc)(int), const int listen, const int input)
 
     (void)mlockall(MCL_FUTURE);
 
+#if 0
     /* Phase 2: Start processing coldstart requests via epoll */
     coldstart_active = 1;
     coldstart_next();
+#endif
 }
 
 /*
@@ -854,8 +856,8 @@ void closeIO(void)
 
     if (password) {
 	memset(password, 0, MAX_PASSLEN);
-        munmap(password, MAX_PASSLEN+sizeof(int32_t));
-        password = NULL;
+	munmap(password, MAX_PASSLEN+sizeof(int32_t));
+	password = NULL;
     }
 
     if (pwprompt) {
@@ -1289,13 +1291,12 @@ static void __attribute__((noinline)) epoll_pwd_done(int fd)
 		    free(coldstart_socket_path);
 		    coldstart_socket_path = NULL;
 		}
-	    } else {
-		if (pwd_client_fd >= 0) {
-		    (void)do_answer_password(pwd_client_fd);
-		    epoll_delete(pwd_client_fd);
-		    close(pwd_client_fd);
-		    pwd_client_fd = -1;
-		}
+	    }
+	    if (pwd_client_fd >= 0) {
+		(void)do_answer_password(pwd_client_fd);
+		epoll_delete(pwd_client_fd);
+		close(pwd_client_fd);
+		pwd_client_fd = -1;
 	    }
 
 	    /* 2. Enable Kernel-Logging to the console Konsole */
@@ -1336,6 +1337,15 @@ static void epoll_socket_answer(int fd)
 
     /* Remember the Socket for later and start the background process */
     pwd_client_fd = fd;
+
+    if (asking) {
+#ifdef DEBUG
+	warn("%s: Agent synchronized with already running prompt.", __FUNCTION__);
+#endif
+	epoll_addread(fd, &socket_handler);
+	return;
+    }
+
     ask_for_password();
 }
 
@@ -1422,12 +1432,17 @@ static void socket_handler(int fd)
 	warn("Got password request for prompt >%s<", arg);
 #endif
 	if (asking) {
-	    /*
-	     * This should not happen as Systemd serialize password requests
-	     */
-	    const char *nck = ANSWER_NCK;
-	    safeout(fd, nck, strlen(nck)+1, SSIZE_MAX);
-	    warn("Got further password request with prompt >%s<", arg);
+	    if (pwd_client_fd >= 0 && pwd_client_fd != fd) {
+		epoll_delete(pwd_client_fd);
+		close(pwd_client_fd);
+	    }
+	    pwd_client_fd = fd;
+
+	    if (pwprompt)
+		free(pwprompt);
+	    pwprompt = strdup(arg);
+
+	    epoll_answer_once(fd, &epoll_socket_answer);
 	    goto job;
 	}
 

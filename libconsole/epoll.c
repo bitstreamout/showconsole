@@ -1,7 +1,8 @@
 /*
  * epoll.c
  *
- * Copyright 2000,2015 Werner Fink, 2015 SuSE Linux GmbH.
+ * Copyright 2000,2015,2026 Werner Fink, 2015 SuSE Linux GmbH.
+ * Copyright 2026 SUSE Software Solutions Germany GmbH
  *
  * This source is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -12,6 +13,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/epoll.h>
+#include <unistd.h>
+#include <errno.h>
 #include "listing.h"
 #include "libconsole.h"
 
@@ -71,31 +74,42 @@ void epoll_addwrite(int fd, void *fptr)
 void epoll_answer_once(int fd, void *fptr)
 {
     struct epoll_event ev = {};
-    struct epolls *ep;
-    list_t *head;
+    struct epolls *ep, *target = NULL;
     int ret;
 
+    list_for_each_entry(ep, &lpolls, watch) {
+	if (ep->fd == fd) {
+	    target = ep;
+	    break;
+	}
+    }
+
+    if (!target) {
+	list_t *head;
+
+	if (posix_memalign((void**)&ep, sizeof(void*), alignof(struct epolls)) != 0 || !ep)
+	    error("memory allocation");
+
+	ep->fd = fd;
+    
+	if (!epolls) {
+	    head = &lpolls;
+	    epolls = (struct epolls*)head;
+	} else
+	    head = &epolls->watch;
+	insert(&ep->watch, head);
+	evmax++;
+
+	target = ep;
+    }
+
     ev.events = EPOLLOUT|EPOLLONESHOT;
-
-    if (posix_memalign((void**)&ep, sizeof(void*), alignof(struct epolls)) != 0 || !ep)
-	error("memory allocation");
-
-    ep->handle = (typeof(ep->handle))fptr;
-    ep->fd = fd;
-
-    ev.data.ptr = (void*)ep;
-
-    if (!epolls) {
-	head = &lpolls;
-	epolls = (struct epolls*)head;
-    } else
-	head = &epolls->watch;
-    insert(&ep->watch, head);
-    evmax++;
+    target->handle = (typeof(target->handle))fptr;
+    ev.data.ptr = (void*)target;
 
     ret = epoll_ctl(epfd, EPOLL_CTL_MOD, fd, &ev);
     if (ret < 0)
-	error("can not add %d file descriptor on epoll file descriptor", fd);
+	error("can not modify %d file descriptor on epoll file descriptor", fd);
 }
 
 void epoll_reenable(int fd)
@@ -115,7 +129,6 @@ void epoll_reenable(int fd)
 	    break;
 	}
     }
-
 }
 
 void epoll_delete(int fd)
@@ -127,14 +140,15 @@ void epoll_delete(int fd)
 	if (ep->fd == fd) {
 	    delete(&ep->watch);
 	    free(ep);
-	    break;
+	    evmax--;
 	}
     }
-    evmax--;
 
     ret = epoll_ctl(epfd, EPOLL_CTL_DEL, fd, NULL);
-    if (ret < 0)
-	error("can not delete %d file descriptor on epoll file descriptor", fd);
+    if (ret < 0) {
+	if (errno != ENOENT)
+	    error("can not delete %d file descriptor on epoll file descriptor", fd);
+    }
 }
 
 void (*epoll_handle(void *ptr, int *fd))(int)
