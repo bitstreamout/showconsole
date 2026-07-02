@@ -1051,6 +1051,8 @@ void getconsoles(int io)
 	    flags |= CON_SCLP;
 	else if (maj == 227 && min >= 1)
 	    flags |= CON_3270;
+	else if (maj == 229 && min >= 0)
+	    flags |= CON_HVC;
 #endif
 	consalloc(&c, tty, flags, makedev(maj, min), io);
 	free(tty);
@@ -1840,7 +1842,7 @@ static void ask_for_password(void)
 		 * and blocks the subsequent readpw() call forever.
 		 */
 		len = asprintf(&message, "\n===>> %s:\n", pwprompt);
-	    } else if (c->flags & (CON_SCLP|CON_3270)) {
+	    } else if (c->flags & (CON_SCLP|CON_3270|CON_HVC)) {
 		/*
 		 * The 3270 console can do ANSI colouring and carriage returns,
 		 * as well as the sclp consoles which are a full featured ttys.

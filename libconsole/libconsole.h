@@ -121,6 +121,7 @@ struct console {
 #define CON_3215	(128)	/* s390x 3215 halfduplex console */
 #define CON_3270	(256)	/* s390x 3270 console */
 #define CON_SCLP	(512)	/* s390x sclp terminals */
+#define CON_HVC		(1024)	/* s390x hvc terminals */
 
 extern sigset_t omask;
 extern int final;
