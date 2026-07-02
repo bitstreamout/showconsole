@@ -110,6 +110,16 @@ static const fd_set empty;
 int final = 0;
 
 /*
+ * Should the console be silent?
+ */
+int console_silent = 0;
+
+/*
+ * Should the cold start scan for asking password be active?
+ */
+int coldboot = 0;
+
+/*
  * Avoid trouble if linked with e.g. blogger as there
  * is no external arg0 but linker on ppc64 and s390/x
  * seems to expect this.
@@ -514,7 +524,8 @@ static volatile ssize_t tavail;
 
 static void ask_for_password(void) attribute((noinline));
 
-static int coldstart_active = 0;
+static int coldstart_active;
+static int coldstart_triggered;
 static char *coldstart_socket_path = NULL;
 
 static void coldstart_next(void)
@@ -603,11 +614,10 @@ void prepareIO(int (*rfunc)(int), const int listen, const int input)
 
     (void)mlockall(MCL_FUTURE);
 
-#if 0
-    /* Phase 2: Start processing coldstart requests via epoll */
-    coldstart_active = 1;
-    coldstart_next();
-#endif
+    if (coldboot) {
+	/* Phase 2: Start processing coldstart requests via epoll */
+	coldstart_active = 1;
+    }
 }
 
 /*
@@ -780,6 +790,12 @@ skip:
 	start_logging();
     }
 
+    /* Launch coldstart password queries strictly after setup, right before epoll_wait */
+    if (coldstart_active && !coldstart_triggered) {
+	coldstart_triggered = 1;
+	coldstart_next();
+    }
+
     (void)more_input(5000, 0);
 
     if (nsigsys) {  /* Stop writing logs to disk, only repeat messages */
@@ -932,10 +948,10 @@ static int consalloc(struct console **cons, char *name, const int cflags, const 
     if (!cons)
 	error("missing console pointer");
 
-    if (posix_memalign((void**)&newc, sizeof(void*), alignof(struct console)+strlen(name)+1) != 0 || !newc)
+    if (posix_memalign((void**)&newc, sizeof(void*), ALIGNED_SIZEOF(struct console)+strlen(name)+1) != 0 || !newc)
 	error("memory allocation");
 
-    newc->tty = ((char*)newc)+alignof(struct console);
+    newc->tty = ((char*)newc)+ALIGNED_SIZEOF(struct console);
     strcpy(newc->tty, name);
     newc->flags = cflags;
     newc->dev = dev;
@@ -1147,7 +1163,10 @@ static void epoll_console_in(int fd)
 		size_t ret;
 		if (c->fd < 0)
 		    continue;
-		ret = c->out(c->fd, thead, len, c->max_canon);
+		if (console_silent)
+		    ret = len;
+		else
+		    ret = c->out(c->fd, thead, len, c->max_canon);
 		if (ret < 1)
 		    goto flush;
 		len = ret;				/* First make write out all but Second? */
@@ -1171,7 +1190,10 @@ static void epoll_console_in(int fd)
 	    size_t ret;
 	    if (c->fd < 0)
 		continue;
-	    ret = c->out(c->fd, trans, cnt, c->max_canon);
+	    if (console_silent)
+		ret = cnt;
+	    else
+		ret = c->out(c->fd, trans, cnt, c->max_canon);
 	    if (ret < 1) {
 		if (cnt <= (size_t)(tend - ttail)) {
 		    memcpy(ttail, trans, cnt);

@@ -44,6 +44,8 @@ extern volatile sig_atomic_t nsigsys;
 extern volatile sig_atomic_t signaled;
 extern volatile sig_atomic_t asking;
 extern int final;
+extern int console_silent;
+extern int coldboot;
 
 static int show_status;
 static const char console[] = "/dev/console";
@@ -249,7 +251,7 @@ static void vmcp_handler (void) attribute((noinline));
 int main(int argc, char *argv[])
 {
     char ptsname[NAME_MAX+1];
-    const char *tty, *stt;
+    const char *tty, *stt, *val;
     volatile char *arg0;
     struct console *c;
     struct termios o;
@@ -283,6 +285,18 @@ int main(int argc, char *argv[])
     }
     argv += optind;
     argc -= optind;
+
+    parse_cmdline();	/* Parse the kernel command line for blog.<key>(=<val>) */
+    val = value_cmdline("silent");
+    if (val) {
+        if (strcmp(val, "1") == 0 || strcasecmp(val, "on") == 0 || strcasecmp(val, "yes") == 0 || strcasecmp(val, "true"))
+            console_silent = 1;
+    }
+    val = value_cmdline("coldboot");
+    if (val) {
+        if (strcmp(val, "1") == 0 || strcasecmp(val, "on") == 0 || strcasecmp(val, "yes") == 0 || strcasecmp(val, "true"))
+            coldboot = 1;
+    }
 
     myname = program_invocation_short_name;
     getconsoles(1);
@@ -348,10 +362,7 @@ int main(int argc, char *argv[])
 	}
 #if defined(__s390__) || defined(__s390x__)
 	if ((c->flags & CON_3215) && final == 0) {
-	    char *timeout;
-
-	    parse_cmdline();	/* Parse the kernel command line for blog.<key>=<val> */
-	    timeout = value_cmdline("timeout");
+	    char *timeout = value_cmdline("timeout");
 
 	    if (timeout && isinteger(timeout)) {
 		int vmcp = openvmcp();
@@ -369,10 +380,11 @@ int main(int argc, char *argv[])
 		usleep(1000);
 	    }
 
-	    free_cmdline();
 	}
 #endif
     }
+
+    free_cmdline();	/* free cmd list after last usage of value_cmdline() */
 
     if (openpty(&ptm, &pts, ptsname, &o, &w) < 0)
 	error("can not open pty/tty pair");

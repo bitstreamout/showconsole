@@ -108,23 +108,29 @@ void parse_cmdline(void) {
 	    const char *prefix = "blog.";
 	    const size_t plen = strlen(prefix);
 
-	    if (strncmp(token, prefix , plen) == 0) {
+	    if (strncmp(token, prefix, plen) == 0) {
 		char *kv = token + plen;
 		char *eq = strchr(kv, '=');
+		char *key, *val;
 
 		if (eq) {
+		    *eq = '\0';
+		    key = kv;
+		    val = eq + 1;
+
+		    if (*val == '\0' || *val == ' ') {
+			*eq = '='; /* restore token for strtok_r */
+			token = strtok_r(NULL, " \n", &saveptr);
+			continue;
+		    }
+		} else {
+		    key = kv;
+		    val = "1"; /* default to true */
+		}
+
+		{
 		    parameter_t *pm;
 		    int exists = 0;
-
-		    *eq = '\0';
-		    char *key = kv;
-		    char *val = eq + 1;
-
-                    if (*val == '\0' || *val == ' ') {
-                        *eq = '='; /* restore token for strtok_r */
-                        token = strtok_r(NULL, " \n", &saveptr);
-                        continue;
-                    }
 
 		    list_for_each_entry(pm, &lparameter, handle) {
 			if (strcmp(pm->key, key) == 0) {
@@ -134,9 +140,9 @@ void parse_cmdline(void) {
 			}
 		    }
 		    if (!exists) {
-			if (posix_memalign((void**)&pm, sizeof(void*), alignof(parameter_t)+strlen(key)+1) != 0 || !pm)
+			if (posix_memalign((void**)&pm, sizeof(void*), ALIGNED_SIZEOF(parameter_t)+strlen(key)+1) != 0 || !pm)
 			    error("memory allocation");
-			pm->key = ((char*)pm)+alignof(parameter_t);
+			pm->key = ((char*)pm)+ALIGNED_SIZEOF(parameter_t);
 			strcpy(pm->key, key);
 			pm->val = strdup(val);
 
@@ -147,7 +153,8 @@ void parse_cmdline(void) {
 			    head = &(parameter)->handle;
 			insert(&pm->handle, head);
 		    }
-		    *eq = '='; /* restore token for strtok_r */
+		    if (eq)
+			*eq = '='; /* restore token for strtok_r */
 		}
 	    }
 	    token = strtok_r(NULL, " \n", &saveptr);
@@ -160,8 +167,8 @@ char* value_cmdline(const char* key) {
     parameter_t *pm;
     list_for_each_entry(pm, &lparameter, handle) {
 	if (strcmp(pm->key, key) == 0) {
-            return pm->val;
-        }
+	    return pm->val;
+	}
     }
     return (char*)0;
 }
@@ -169,9 +176,9 @@ char* value_cmdline(const char* key) {
 void free_cmdline(void) {
     parameter_t *pm, *n;
     list_for_each_entry_safe(pm, n, &lparameter, handle) {
-        free(pm->val);
-        delete(&pm->handle);
-        free(pm);
+	free(pm->val);
+	delete(&pm->handle);
+	free(pm);
     }
 }
 #ifdef DEBUG_PROC
@@ -185,15 +192,15 @@ static int _isinteger(const char *str)
 
     /* Check if no digits were found at all */
     if (str == endptr)
-        ret = 0;
+	ret = 0;
 
     /* Check for overflow or underflow */
     if (errno == ERANGE)
-        ret = 0;
+	ret = 0;
 
     /* Check for trailing non-numeric characters (e.g., "123abc") */
     if (*endptr != '\0')
-        ret = 0;
+	ret = 0;
 
     errno = errs;
     return ret;
@@ -204,10 +211,10 @@ int main(void)
     char *key;
     parse_cmdline();
     list_for_each_entry(pm, &lparameter, handle) {
-        printf("key %s = val %s\n", pm->key, pm->val);
+	printf("key %s = val %s\n", pm->key, pm->val);
     }
     key = value_cmdline("timeout");
     if (key)
-        printf("%s %d\n", key, _isinteger(key));
+	printf("%s %d\n", key, _isinteger(key));
 }
 #endif

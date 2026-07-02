@@ -5,7 +5,6 @@ Wants=systemd-ask-password-blog.path systemd-vconsole-setup.service
 After=systemd-vconsole-setup.service systemd-udev-trigger.service systemd-udevd.service
 Before=systemd-ask-password-blog.service
 ConditionKernelCommandLine=!blog.enable=0
-ConditionKernelCommandLine=!plymouth.enable=0
 ConditionVirtualization=!container
 ConditionPathExists=/dev/console
 IgnoreOnIsolate=true
@@ -15,5 +14,5 @@ RefuseManualStart=true
 ExecStart=/sbin/blogd
 Type=forking
 RemainAfterExit=yes
-KillMode=none
+KillMode=mixed
 SendSIGKILL=no

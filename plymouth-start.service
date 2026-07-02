@@ -1,7 +1,6 @@
 [Unit]
 Description=Plymouth Boot Screen Compatibility Shim
 DefaultDependencies=no
-ConditionKernelCommandLine=!blog.enable=0
 ConditionKernelCommandLine=!plymouth.enable=0
 ConditionVirtualization=!container
 Requires=blog.service

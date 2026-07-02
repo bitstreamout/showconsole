@@ -1,12 +1,13 @@
 .\"
 .\" Copyright 2000 Werner Fink, 2000 SuSE GmbH Nuernberg, Germany.
+.\" Copyright 2026 SUSE Software Solutions Germany GmbH
 .\"
 .\" This program is free software; you can redistribute it and/or modify
 .\" it under the terms of the GNU General Public License as published by
 .\" the Free Software Foundation; either version 2 of the License, or
 .\" (at your option) any later version.
 .\"
-.TH BLOGD 8 "Jan 14, 2016" "Version 2.12" "The SUSE boot concept"
+.TH BLOGD 8 "Jul 02, 2026" "Version 2.45" "The SUSE boot concept"
 .UC 8
 .SH NAME
 blogd \- boot logging on /dev/console
@@ -46,34 +47,41 @@ getty on that character device).
 This option is used at shutdown, that is reboot, halt, and poweroff
 but also for kexec.
 .SH BOOT PARAMETERS
+The
+.B blogd
+evaluates the following kernel command line parameters:
+.TP
+.B blog\&.silent[=1|on|yes|true]
+If set, all output to the underlying character devices is suppressed.
+This is useful to prevent the console from being flooded with messages.
+.TP
+.B blog\&.coldboot[=1|on|yes|true]
+If set, explicitly enables the early coldstart scan for systemd password 
+requests (e.g. for LUKS decryption) during the initrd phase.
+.TP
+.B blog\&.timeout=<integer>
 On 
 .B s390x
 (64-bit IBM System/390) and
 .B z/Architecture
-the
-.B blogd
-knows currently one kernel command line parameter
-.BI blog\&.timeout= <integer>
-with
-.I <integer>
-the timeout for the
+this specifies the timeout for the
 .B MORE
-prompt on
+prompt on the
 .I 3215
 console.  If set to
 .I 0
 the boot process does not need manual support.
 .SH SIGNALS
 .B blogd
-knows a few signal to contol its behavior.
+knows a few signals to control its behavior.
 .TP
 .BR SIGQUIT ", " SIGINT ", and " SIGTERM
 will cause
 .B blogd
-tries to write out the ring buffer and to exit.
+to try to write out the ring buffer and to exit.
 .TP
 .B SIGIO
-says
+tells
 .B blogd
 that now it is able to write on
 .I @@BOOT_LOGFILE@@
@@ -82,13 +90,13 @@ mounted read/write and the kernel
 messages are written to that file.
 After a reboot the file
 .I @@BOOT_OLDLOGFILE@@
-may exists where the former messages
+may exist where the former messages
 can be found including the messages at
 shutdown upto the point where the file
 systems become unmounted.
 .TP
 .B SIGSYS
-says
+tells
 .B blogd
 that it should stop writing to disk but
 continue to repeat messages to the old
@@ -134,6 +142,7 @@ logging file which is created by
 .SH COPYRIGHT
 2000,2015 Werner Fink,
 2000 SuSE GmbH Nuernberg, Germany,
-2015 SuSE Linux GmbH.
+2015 SuSE Linux GmbH,
+2026 SUSE Software Solutions Germany GmbH.
 .SH AUTHOR
 Werner Fink <werner@suse.de>

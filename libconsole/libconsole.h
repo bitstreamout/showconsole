@@ -49,7 +49,7 @@
 #endif
 #include "listing.h"
 
-#define alignof(type)		((sizeof(type)+(sizeof(void*)-1)) & ~(sizeof(void*)-1))
+#define ALIGNED_SIZEOF(type)		((sizeof(type)+(sizeof(void*)-1)) & ~(sizeof(void*)-1))
 #define strsize(string)		((strlen(string)+1)*sizeof(char))
 
 #if defined __USE_ISOC99
@@ -124,6 +124,8 @@ struct console {
 
 extern sigset_t omask;
 extern int final;
+extern int console_silent;
+extern int coldboot;
 extern int epfd;
 extern int evmax;
 extern volatile sig_atomic_t signaled;

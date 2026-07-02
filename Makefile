@@ -157,6 +157,9 @@ install:	$(TODO)
 	set -xe; install
 	$(MKDIR)	$(DESTDIR)$(SYSDUNITS)/local-fs-pre.target.wants
 	$(MKDIR)	$(DESTDIR)$(SYSDUNITS)/default.target.wants
+	$(MKDIR)	$(DESTDIR)$(SYSDUNITS)/sysinit.target.wants
+	$(LINK) ../blog-store-messages.service	$(DESTDIR)$(SYSDUNITS)/sysinit.target.wants/
+	$(LINK) ../plymouth-read-write.service	$(DESTDIR)$(SYSDUNITS)/sysinit.target.wants/
 	$(LINK) ../blog-umount.service	$(DESTDIR)$(SYSDUNITS)/local-fs-pre.target.wants/
 	$(LINK) ../blog-quit.service	$(DESTDIR)$(SYSDUNITS)/default.target.wants/
 	$(LINK) ../plymouth-quit.service	$(DESTDIR)$(SYSDUNITS)/default.target.wants/

@@ -38,7 +38,7 @@ install() {
 	ln_r "${systemdsystemunitdir}/${s}" "${systemdsystemunitdir}/rescue.target.wants/${s}"
 	ln_r "${systemdsystemunitdir}/${s}" "${systemdsystemunitdir}/emergency.target.wants/${s}"
     done
-    for s in blog.service plymouth-start.service blog-store-messages.service plymouth-read-write.service
+    for s in blog.service plymouth-start.service systemd-ask-password-blog.path
     do
 	ln_r "${systemdsystemunitdir}/${s}" "${systemdsystemunitdir}/sysinit.target.wants/${s}"
     done

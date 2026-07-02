@@ -40,7 +40,7 @@ static inline void epoll_addition(int fd, void *fptr, uint32_t flags)
 
     ev.events = flags;
 
-    if (posix_memalign((void**)&ep, sizeof(void*), alignof(struct epolls)) != 0 || !ep)
+    if (posix_memalign((void**)&ep, sizeof(void*), ALIGNED_SIZEOF(struct epolls)) != 0 || !ep)
 	error("memory allocation");
 
     ep->handle = (typeof(ep->handle))fptr;
@@ -87,7 +87,7 @@ void epoll_answer_once(int fd, void *fptr)
     if (!target) {
 	list_t *head;
 
-	if (posix_memalign((void**)&ep, sizeof(void*), alignof(struct epolls)) != 0 || !ep)
+	if (posix_memalign((void**)&ep, sizeof(void*), ALIGNED_SIZEOF(struct epolls)) != 0 || !ep)
 	    error("memory allocation");
 
 	ep->fd = fd;
