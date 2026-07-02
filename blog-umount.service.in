@@ -10,4 +10,5 @@ ConditionPathIsReadWrite=/var/log
 Type=oneshot
 TimeoutSec=0
 RemainAfterExit=yes
+ExecStart=/bin/true
 ExecStop=/sbin/blogctl close

@@ -2,7 +2,7 @@
 Description=Tell blogd to Quit
 DefaultDependencies=no
 Conflicts=shutdown.target
-After=rc-local.service blog.service systemd-user-sessions.service
+After=default.target rc-local.service blog.service systemd-user-sessions.service
 
 [Service]
 Type=oneshot
