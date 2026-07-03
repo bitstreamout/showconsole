@@ -43,6 +43,8 @@
 #include "listing.h"
 #include "libconsole.h"
 
+weak_symbol(pthread_sigmask);
+
 /* Fallback for older glibc */
 
 #ifndef SYS_pidfd_open
@@ -157,10 +159,12 @@ volatile sig_atomic_t signaled;
 	} error(fmt, args);	    \
     } while (0)
 
-static volatile sig_atomic_t sigchild;
+volatile sig_atomic_t sigchild;
+#ifdef NO_SIGNALFD
 static void chld_handler(int sig) {
     ++sigchild;
 }
+#endif
 
 /*
  * Console list
@@ -493,8 +497,9 @@ out:
  * Signal control for writing on log file
  */
 volatile sig_atomic_t nsigsys;
-static volatile sig_atomic_t nsigio = -1;
+volatile sig_atomic_t nsigio = -1;
 
+#ifdef NO_SIGNALFD
 /* One shot signal handler */
 static void sigio(int sig)
 {
@@ -503,6 +508,7 @@ static void sigio(int sig)
 	set_signal(sig, NULL, SIG_IGN);
     nsigio = sig;
 }
+#endif
 
 /*
  * Our transfer buffer from system console to the devices
@@ -568,13 +574,34 @@ void epoll_write_watchdog(int) attribute((noinline));
 void prepareIO(int (*rfunc)(int), const int listen, const int input)
 {
     struct console *c;
+#ifndef NO_SIGNALFD
+    sigset_t sfd_mask;
+
+    sigemptyset(&sfd_mask);
+    sigaddset(&sfd_mask, SIGINT);
+    sigaddset(&sfd_mask, SIGQUIT);
+    sigaddset(&sfd_mask, SIGTERM);
+    sigaddset(&sfd_mask, SIGSYS);
+    sigaddset(&sfd_mask, SIGIO);
+    sigaddset(&sfd_mask, SIGCHLD);
+#endif
+
+    epfd = epoll_create1(EPOLL_CLOEXEC);
+    if (epfd < 0)
+	error("can not open epoll file descriptor");
+
+#ifndef NO_SIGNALFD
+    /* Block signals globally and register the file descriptor to epoll */
+    setup_signalfd(sfd_mask);
+#endif
 
     (void)sigfillset(&omask);
+#ifdef NO_SIGNALFD
     (void)sigdelset(&omask, SIGQUIT);
     (void)sigdelset(&omask, SIGTERM);
     (void)sigdelset(&omask, SIGSYS);
     (void)sigdelset(&omask, SIGIO);
-
+#endif
     vc_reconnect = rfunc;
     fdsock  = listen;			/* We use only ONE socket ... see also safeout() */
     fdread  = input;
@@ -594,10 +621,6 @@ void prepareIO(int (*rfunc)(int), const int listen, const int input)
 		warn("can not open named fifo %s", fifo_name);
 	}
     }
-
-    epfd = epoll_create1(EPOLL_CLOEXEC);
-    if (epfd < 0)
-	error("can not open epoll file descriptor");
 
     if (fdread >= 0)
 	epoll_addread(fdread, &epoll_console_in);
@@ -778,8 +801,9 @@ skip:
 	/* Currently no thread active */
 	nsigio = 0;
 	atboot = 1;
-
+#ifdef NO_SIGNALFD
 	set_signal(SIGIO, NULL, sigio);
+#endif
     }
 
     if (flog) {
@@ -805,7 +829,9 @@ skip:
 	}
 	if (nsigio < 0) {
 	    nsigio = SIGIO;
+#ifdef NO_SIGNALFD
 	    (void)set_signal(SIGIO, NULL, SIG_IGN);
+#endif
 	}
     }
 }
@@ -948,10 +974,10 @@ static int consalloc(struct console **cons, char *name, const int cflags, const 
     if (!cons)
 	error("missing console pointer");
 
-    if (posix_memalign((void**)&newc, sizeof(void*), ALIGNED_SIZEOF(struct console)+strlen(name)+1) != 0 || !newc)
+    if (posix_memalign((void**)&newc, sizeof(void*), align_up(struct console, void*)+strlen(name)+1) != 0 || !newc)
 	error("memory allocation");
 
-    newc->tty = ((char*)newc)+ALIGNED_SIZEOF(struct console);
+    newc->tty = ((char*)newc)+align_up(struct console, void*);
     strcpy(newc->tty, name);
     newc->flags = cflags;
     newc->dev = dev;
@@ -1512,9 +1538,10 @@ static void socket_handler(int fd)
 
 	enqry = ANSWER_ACK;
 	safeout(fd, enqry, strlen(enqry)+1, SSIZE_MAX);
-
+#ifdef NO_SIGNALFD
 	if (nsigio == 0)
 	    set_signal(SIGIO, NULL, SIG_IGN);
+#endif
 	nsigio = SIGIO;
 
 	break;
@@ -1669,9 +1696,10 @@ static void socket_handler(int fd)
 
 	enqry = ANSWER_ACK;
 	safeout(fd, enqry, strlen(enqry)+1, SSIZE_MAX);
-
+#ifdef NO_SIGNALFD
 	if (nsigsys == 0)
 	    set_signal(SIGSYS, NULL, SIG_IGN);
+#endif
 	nsigsys = SIGSYS;
 
 	break;
@@ -1725,8 +1753,9 @@ static void ask_for_password(void)
 	pwprompt[len] = '\0';
 	len--;
     }
+#ifdef NO_SIGNALFD
     set_signal(SIGCHLD, NULL, chld_handler);
-
+#endif
     asking = 1;				/* Show only our question about password/passphrase */
 
     /* pwprompt */
@@ -1748,6 +1777,14 @@ static void ask_for_password(void)
 	    int len, fdc, tflags;
 #if defined(__s390__) || defined(__s390x__)
 	    int vmcpfd = -1;
+#endif
+#ifndef NO_SIGNALFD
+	    sigset_t empty_mask;
+	    sigemptyset(&empty_mask);
+	    if ((pthread_sigmask))
+		pthread_sigmask(SIG_UNBLOCK, &empty_mask, NULL);
+	    else
+		sigprocmask(SIG_SETMASK, &empty_mask, NULL);
 #endif
 	    if (fdfifo >= 0)
 		close(fdfifo);

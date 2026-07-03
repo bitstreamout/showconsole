@@ -105,11 +105,11 @@ void parse_ask_file(const char *filepath)
     in_ask_section = 0;
 
     /* Allocate memory for our custom wrapper structure */
-    if (posix_memalign((void**)&req, sizeof(void*), ALIGNED_SIZEOF(struct request)) != 0 || !req) {
+    if (posix_memalign((void**)&req, sizeof(void*), align_up(struct request, void*)) != 0 || !req) {
 	fclose(fp);
 	error("memory allocation: %m");
     }
-    memset(req, 0, sizeof(struct request));
+    memset(req, 0, align_up(struct request, void*));
 
     while (fgets(line, sizeof(line), fp)) {
 	char *eq, *key, *value;

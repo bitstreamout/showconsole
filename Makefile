@@ -86,11 +86,14 @@ $(libfiles):  $(L)libconsole.h listing.h
 libconsole.a: $(patsubst %.c,%.o,$(libfiles)) $(L)libconsole.h listing.h
 	$(AR) rusv $@ $^
 
+$(L)signals_stripped.o: $(L)signals.c
+	$(CC) $(CFLAGS) $(CLOOP) -DNO_SIGNALFD -D_REENTRANT -fPIC -o $@ -c $< -pthread
+
 libblogger.o:	libconsole.a
 libblogger.o:	libblogger.c libblogger.h
 	$(CC) $(CFLAGS) $(CLOOP) -fPIC -c $<
 
-libblogger.so:	libblogger.o libconsole/signals.o
+libblogger.so:	libblogger.o libconsole/signals_stripped.o
 	$(CC) -shared  -Wl,-O2 -Wl,-soname=$@.$(MAJOR) -o $@ $^
 
 showconsole:	showconsole.c libconsole.a

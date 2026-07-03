@@ -11,6 +11,7 @@
 
 #include <err.h>
 #include <errno.h>
+#include <stddef.h>
 #include <stdio.h>
 #include <signal.h>
 #include <sys/types.h>
@@ -49,7 +50,7 @@
 #endif
 #include "listing.h"
 
-#define ALIGNED_SIZEOF(type)		((sizeof(type)+(sizeof(void*)-1)) & ~(sizeof(void*)-1))
+#define align_up(type,boundary)	((sizeof(type)+(sizeof(boundary)-1)) & ~(sizeof(boundary)-1))
 #define strsize(string)		((strlen(string)+1)*sizeof(char))
 
 #if defined __USE_ISOC99
@@ -130,7 +131,9 @@ extern int coldboot;
 extern int epfd;
 extern int evmax;
 extern volatile sig_atomic_t signaled;
+extern volatile sig_atomic_t sigchild;
 extern volatile sig_atomic_t nsigsys;
+extern volatile sig_atomic_t nsigio;
 extern volatile sig_atomic_t asking;
 
 extern void remember_arg0(volatile char *arg0);
@@ -207,6 +210,9 @@ extern void* shm_malloc(size_t size);
 extern void set_signal(int sig, struct sigaction *old, sighandler_t handler);
 extern void reset_signal(int sig, struct sigaction *old);
 extern int restart_sig(int sig, int flag);
+#ifndef NO_SIGNALFD
+extern int setup_signalfd(sigset_t mask);
+#endif
 
 /* socket.c */
 extern int open_un_socket_and_listen(void);

@@ -140,9 +140,9 @@ void parse_cmdline(void) {
 			}
 		    }
 		    if (!exists) {
-			if (posix_memalign((void**)&pm, sizeof(void*), ALIGNED_SIZEOF(parameter_t)+strlen(key)+1) != 0 || !pm)
+			if (posix_memalign((void**)&pm, sizeof(void*), align_up(parameter_t, void*) + strlen(key)+1) != 0 || !pm)
 			    error("memory allocation");
-			pm->key = ((char*)pm)+ALIGNED_SIZEOF(parameter_t);
+			pm->key = ((char*)pm)+align_up(parameter_t, void*);
 			strcpy(pm->key, key);
 			pm->val = strdup(val);
 

@@ -12,6 +12,10 @@
 #include <errno.h>
 #include <stddef.h>
 #include <signal.h>
+#ifndef NO_SIGNALFD
+# include <sys/signalfd.h>
+# include <string.h>
+#endif
 #include "libconsole.h"
 
 weak_symbol(pthread_sigmask);
@@ -90,3 +94,63 @@ int restart_sig(int sig, int flag)
 
     return ret;
 }
+
+#ifndef NO_SIGNALFD
+/* Part of signal handling with signalfd only valid for libconsole */
+
+static void handle_signal_event(int fd)
+{
+    struct signalfd_siginfo fdsi;
+
+    ssize_t s = read(fd, &fdsi, sizeof(struct signalfd_siginfo));
+    if (s != sizeof(struct signalfd_siginfo))
+	return;		/* Short reads are impossible by kernel design.
+			   Catching -1 (e.g. EAGAIN) here. */
+
+    switch (fdsi.ssi_signo) {
+    case SIGTERM:
+    case SIGQUIT:
+    case SIGINT:
+	if (nsigsys && (fdsi.ssi_signo == SIGTERM))
+	    break;
+	signaled = fdsi.ssi_signo;
+	break;
+    case SIGSYS:
+	nsigsys = SIGSYS;
+	break;
+    case SIGIO:
+	nsigio = SIGIO;
+	break;
+    case SIGCHLD:
+	sigchild++;
+	break;
+    default:
+	warn("Signal catched %s but not handled", strsignal(fdsi.ssi_signo));
+	break;
+    }
+}
+
+int setup_signalfd(sigset_t mask)
+{
+    int sfd = -1;
+
+    if ((pthread_sigmask))
+	pthread_sigmask(SIG_BLOCK, &mask, NULL);
+    else
+	sigprocmask(SIG_BLOCK, &mask, NULL);
+
+    /*
+     * The SFD_NONBLOCK is essential for (e)polling
+     * whereas SFD_CLOEXEC we might not need.
+     * Nevertheless how to handle the logging thread
+     * as well as the forking password questioners
+     */
+    sfd = signalfd(-1, &mask, SFD_NONBLOCK|SFD_CLOEXEC);
+    if (sfd < 0)
+	error("can not open signal file descriptor");
+
+    epoll_addread(sfd, &handle_signal_event);
+
+    return sfd;
+}
+#endif

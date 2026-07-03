@@ -169,11 +169,12 @@ static struct sigaction saved_sigttin;
 static struct sigaction saved_sigttou;
 static struct sigaction saved_sigtstp;
 static struct sigaction saved_sighup;
+static struct sigaction saved_sigpipe;
+#ifdef NO_SIGNALFD
 static struct sigaction saved_sigint;
 static struct sigaction saved_sigquit;
 static struct sigaction saved_sigterm;
 static struct sigaction saved_sigsys;
-static struct sigaction saved_sigpipe;
 
 static void sighandle(int sig)
 {
@@ -189,6 +190,7 @@ static void sigsys(int sig)
 {
     nsigsys = (volatile sig_atomic_t)sig;
 }
+#endif
 
 /*
  * To be able to reconnect to real tty on EIO
@@ -424,6 +426,7 @@ int main(int argc, char *argv[])
     set_signal(SIGTSTP, &saved_sigtstp, SIG_IGN);
     set_signal(SIGHUP,  &saved_sighup,  SIG_IGN);
     set_signal(SIGPIPE, &saved_sigpipe, SIG_IGN);
+#ifdef NO_SIGNALFD
     set_signal(SIGINT,  &saved_sigint,  sighandle);
     set_signal(SIGQUIT, &saved_sigquit, sighandle);
     set_signal(SIGTERM, &saved_sigterm, sighandle);
@@ -432,6 +435,7 @@ int main(int argc, char *argv[])
     (void)restart_sig(SIGQUIT, 1);
     (void)restart_sig(SIGTERM, 1);
     (void)restart_sig(SIGSYS,  1);
+#endif
 
     list_for_each_entry(c, &lcons, node) {
 	struct termios oldtio;
@@ -654,10 +658,12 @@ static void exit_handler (void)
     reset_signal(SIGTSTP, &saved_sigtstp);
     reset_signal(SIGHUP,  &saved_sighup);
     reset_signal(SIGPIPE, &saved_sigpipe);
+#ifdef NO_SIGNALFD
     reset_signal(SIGINT,  &saved_sigint);
     reset_signal(SIGQUIT, &saved_sigquit);
     reset_signal(SIGTERM, &saved_sigterm);
     reset_signal(SIGSYS,  &saved_sigsys);
+#endif
 }
 
 #if defined(__s390__) || defined(__s390x__)
