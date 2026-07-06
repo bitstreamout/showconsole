@@ -48,6 +48,8 @@ endif
 	INSTCON = install $(INSTDOCFLAGS)
    INSTSCRFLAGS = -c -m 0755
 	INSTSCR = install $(INSTSCRFLAGS)
+    INSTSOFLAGS = -c -m 0755
+	 INSTSO = install $(INSTSOFLAGS)
 	   LINK = ln -sf
 	     AR ?= ar
 	     LD ?= ld -shared -O2
@@ -134,7 +136,7 @@ install:	$(TODO)
 	$(INSTBIN) blogctl		$(DESTDIR)$(SBINDIR)/
 	$(INSTDOC) blogctl.8		$(DESTDIR)$(SDOCDIR)/
 	$(INSTCON) libblogger.h		$(DESTDIR)$(INCDIR)/
-	$(INSTCON) libblogger.so	$(DESTDIR)$(LIBDIR)/libblogger.so.$(MAJOR).$(MINOR)
+	$(INSTSO)  libblogger.so	$(DESTDIR)$(LIBDIR)/libblogger.so.$(MAJOR).$(MINOR)
 	$(INSTBIN) isserial		$(DESTDIR)$(SBINDIR)/
 	$(INSTDOC) isserial.8		$(DESTDIR)$(SDOCDIR)/
 	$(INSTSCR) module-setup.sh	$(DESTDIR)$(DRACUTMOD)/
