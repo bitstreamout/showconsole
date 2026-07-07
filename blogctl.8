@@ -13,7 +13,7 @@ blogctl \- Control the boot loggind daemon blogd
 .SH SYNOPSIS
 .\"
 .B /sbin/blogctl
-.RI [ ping | quit | root=<path> | ready | close ]
+.RI [ ping | quit\ [--wait] | root=<path> | ready | close ]
 .SH DESCRIPTION
 .B blogctl
 may be used to check if a
@@ -27,10 +27,12 @@ Send a simply ping request if
 .B blogd
 daemon is up and running.
 .TP
-.B quit
+.B quit \fR[\fB\-\-wait\fR]
 Cause the
 .B blogd
-daemon to finish its logging and then gracefully quits.
+daemon to finish its logging and then gracefully quits.  If the optional
+\fB\-\-wait\fR flag is specified, \fBblogctl\fR will block and wait 
+until the daemon has fully flushed the logs and closed the connection.
 .TP
 .BI root= <path>
 This command take a path as further value of the new root file

@@ -14,6 +14,8 @@
 #include <stdarg.h>
 #include <stdlib.h>
 #include <string.h>
+#include <poll.h>
+#include <sys/socket.h>
 #include "libconsole.h"
 
 /*
@@ -80,11 +82,37 @@ out:
     return ret;
 }
 
+static int wait_for_blogd_close(int fd)
+{
+     struct pollfd pfd;
+     pfd.fd = fd;
+     pfd.events = POLLIN|POLLRDHUP;
+     pfd.revents = 0;
+ 
+     while (1) {
+	 int ret = poll(&pfd, 1, -1);
+ 
+	 if (ret < 0) {
+	     if (errno == EINTR)
+		 continue;
+	     return -1;
+	 }
+ 
+	 if (pfd.revents & (POLLHUP|POLLRDHUP|POLLIN)) {
+	     char buf[1];
+	     /* Verify if socket is really down (EOF = 0 bytes) */
+	     int n = recv(fd, buf, sizeof(buf), MSG_DONTWAIT);
+	     if (n == 0 || (n < 0 && errno != EAGAIN && errno != EWOULDBLOCK))
+		 return 0;       /* down */
+	 }
+     }
+}
+
 int main(int argc, char *argv[])
 {
     char *root = NULL;
     char *message, answer[2], cmd[2];
-    int fdsock = -1, ret, len;
+    int fdsock = -1, ret, len, do_wait = 0;
 
     cmd[1] = '\0';
     answer[0] = '\x15';
@@ -94,7 +122,7 @@ int main(int argc, char *argv[])
 	error("no blogd active");
 
     while ((cmd[0] = getcmd(argc, argv)) != (char)-1) {
-        switch (cmd[0]) {
+	switch (cmd[0]) {
 	case MAGIC_CHROOT:
 	    root = optarg;
 	    len = (int)strlen(root);
@@ -112,6 +140,11 @@ int main(int argc, char *argv[])
 	case MAGIC_PING:
 	case MAGIC_SYS_INIT:
 	case MAGIC_QUIT:
+ 	    /* Check if --wait was passed as an argument to quit */
+ 	    if (cmd[0] == MAGIC_QUIT && argv[optind] && strcmp(argv[optind], "--wait") == 0) {
+ 		do_wait = 1;
+ 		optind++; /* Consume the argument so getcmd doesn't trip over it */
+ 	    }
 	case MAGIC_FINAL:
 	case MAGIC_CLOSE:
 	case MAGIC_DEACTIVATE:
@@ -121,12 +154,16 @@ int main(int argc, char *argv[])
 	case '?':
 	default:
 	    goto fail;
-        }
+	}
 
 	if (can_read(fdsock, 1000)) {
 	    answer[0] = '\0';
 	    safein(fdsock, &answer[0], sizeof(answer));
 	}
+
+	/* If we received an ACK (0x06) and --wait was requested, block until closed */
+	if (do_wait && answer[0] == '\x6')
+	    wait_for_blogd_close(fdsock);
 
 	break;		/* One command per call only */
     }
