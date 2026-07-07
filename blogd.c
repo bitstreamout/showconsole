@@ -291,12 +291,12 @@ int main(int argc, char *argv[])
     parse_cmdline();	/* Parse the kernel command line for blog.<key>(=<val>) */
     val = value_cmdline("silent");
     if (val) {
-        if (strcmp(val, "1") == 0 || strcasecmp(val, "on") == 0 || strcasecmp(val, "yes") == 0 || strcasecmp(val, "true"))
+        if (strcmp(val, "1") == 0 || strcasecmp(val, "on") == 0 || strcasecmp(val, "yes") == 0 || strcasecmp(val, "true") == 0)
             console_silent = 1;
     }
     val = value_cmdline("coldboot");
     if (val) {
-        if (strcmp(val, "1") == 0 || strcasecmp(val, "on") == 0 || strcasecmp(val, "yes") == 0 || strcasecmp(val, "true"))
+        if (strcmp(val, "1") == 0 || strcasecmp(val, "on") == 0 || strcasecmp(val, "yes") == 0 || strcasecmp(val, "true") == 0)
             coldboot = 1;
     }
 
