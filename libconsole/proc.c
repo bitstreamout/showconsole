@@ -58,6 +58,7 @@ void list_fd(const pid_t pid)
     dir = opendir(fds);
     if (!dir) {
 	warn("can not open %s", fds);
+	free(fds);
 	return;
     }
     free(fds);

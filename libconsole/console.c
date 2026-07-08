@@ -907,6 +907,8 @@ void closeIO(void)
 	pwprompt = NULL;
     }
 
+    coldstart_free_requests();
+
     list_for_each_entry(c, &lcons, node) {
 	if (c->fd < 0)
 	    continue;
@@ -1521,9 +1523,11 @@ static void socket_handler(int fd)
 	break;
 
     case MAGIC_CHROOT:
-	if (magic[1] != '\002') {
+	if (magic[1] != '\002' || !arg || !*arg || arg[0] != '/') {
 	    errno = EINVAL;
 	    warn("Got password invalid chroot request");
+	    enqry = ANSWER_NCK;
+	    safeout(fd, enqry, strlen(enqry)+1, SSIZE_MAX);
 	    goto out;
 	}
 

@@ -155,6 +155,7 @@ extern void new_root(const char *root);
 extern void scan_ask_directory(const char *dir_path);
 extern void send_response_to_systemd(const char *socket_path, const char *password);
 extern int coldstart_pop_request(char **message, char **socket_path);
+extern void coldstart_free_requests(void);
 
 /* devices.c */
 extern char *charname(const char *dev);

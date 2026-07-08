@@ -101,6 +101,9 @@ void* shm_malloc(size_t size)
     if (area == MAP_FAILED)
 	 error("can not map shared memory object into memory");
 
+    if (shmfd >= 0)
+	close(shmfd);
+
     if (devshm) {
 	/* shm_ */ unlink(template);
 	free(template);

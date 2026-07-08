@@ -32,8 +32,9 @@ extern void parse_ask_file(const char *);
 void send_response_to_systemd(const char *socket_path, const char *password)
 {
     char *packet;
-    size_t pwd_len, packet_len;
+    size_t pwd_len, packet_len, sock_len;
     struct sockaddr_un addr;
+    ssize_t sent;
 
     int sock = socket(AF_UNIX, SOCK_DGRAM, 0);
     if (sock < 0)
@@ -41,13 +42,19 @@ void send_response_to_systemd(const char *socket_path, const char *password)
 
     memset(&addr, 0, sizeof(addr));
     addr.sun_family = AF_UNIX;
-    strncpy(addr.sun_path, socket_path, sizeof(addr.sun_path) - 1);
+
+    sock_len = strlen(socket_path);
+    if (sock_len >= sizeof(addr.sun_path)) {
+	warn("systemd ask-password socket path too long: %s", socket_path);
+	close(sock);
+	return;
+    }
+    memcpy(addr.sun_path, socket_path, sock_len + 1);
 
     /* systemd protocol requires: '+' + password (the \0 is optional) */
     pwd_len = strlen(password);
     packet_len = pwd_len + 1; /* +1 for '+' */
     packet = (char*)malloc(packet_len);
-
     if (!packet)
 	error("memory allocation: %m");
 
@@ -55,7 +62,9 @@ void send_response_to_systemd(const char *socket_path, const char *password)
     memcpy(packet + 1, password, pwd_len);
 
     /* Now send the packet as one datagramm (SOCK_DGRAM) */
-    sendto(sock, packet, packet_len, 0, (struct sockaddr *)&addr, sizeof(addr));
+    sent = sendto(sock, packet, packet_len, 0, (struct sockaddr *)&addr, sizeof(addr));
+    if (sent < 0 || (size_t)sent != packet_len)
+	warn("failed to send password reply to %s: %m", socket_path);
 
     free(packet);
     close(sock);
@@ -175,8 +184,13 @@ void scan_ask_directory(const char *dir_path)
     char full_path[MAX_LINE];
 
     DIR *dir = opendir(dir_path);
-    if (!dir)
-	error("Failed to open systemd ask-password directory: %m");
+    if (!dir) {
+        if (errno == ENOENT)
+	    warn("systemd ask-password directory %s not available", dir_path);
+        else    
+	    error("Failed to open systemd ask-password directory %s: %m", dir_path);
+	return;
+    }
 
     while ((entry = readdir(dir)) != NULL) {
 	if (entry->d_name[0] == '.')
@@ -229,4 +243,20 @@ int coldstart_pop_request(char **message, char **socket_path)
     free(req);
 
     return 1;
+}
+
+void coldstart_free_requests(void)
+{
+    struct request *req, *next;
+
+    list_for_each_entry_safe(req, next, &pwd_requests, node) {
+	if (req->message)
+	    free(req->message);
+	if (req->socket_path)
+	    free(req->socket_path);
+	delete(&req->node);
+	free(req);
+    }
+
+    requests = NULL;
 }

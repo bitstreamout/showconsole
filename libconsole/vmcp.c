@@ -113,6 +113,8 @@ out:
 char* queryterm(int fd)
 {
     const char* question = "QUERY TERMINAL";
+    /* Reset cached terminal state before reparsing a fresh QUERY TERMINAL reply. */
+    clearvmcp();
     return askvmcp(fd, question);
 }
 

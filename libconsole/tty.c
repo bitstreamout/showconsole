@@ -73,6 +73,7 @@ int request_tty(const char *tty)
 
     wd = inotify_add_watch(nd, tty, IN_CLOSE);
     if (wd < 0) {
+	close(nd);
 	warn("can not add a watch on inotifier %d for %s", nd, tty);
 	return -1;
     }
