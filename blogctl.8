@@ -13,7 +13,7 @@ blogctl \- Control the boot loggind daemon blogd
 .SH SYNOPSIS
 .\"
 .B /sbin/blogctl
-.RI [ ping | quit\ [--wait] | root=<path> | ready | close | ask-for-password | ask-question ]
+.RI [ ping | quit\ [--wait] | root=<path> | ready | close | ask-for-password | ask-question | display-message | hide-message ]
 .SH DESCRIPTION
 .B blogctl
 may be used to check if a
@@ -51,6 +51,25 @@ Message to display when asking the question.
 .TP
 .B \-\-dont-pause-progress
 Silently ignored by \fBblogctl\fR.
+.RE
+.TP
+.B display-message
+Display a message. \fBblogd\fR prints this message to all active hardware 
+consoles and injects it into the boot log stream.
+.RS
+.TP
+.BI \-\-text= STRING
+The message text to display.
+.RE
+.TP
+.B hide-message
+Hide a message. 
+.RS
+.TP
+.BI \-\-text= STRING
+The message text to hide. Note: \fBblogd\fR intentionally ignores the visual 
+clearing of messages to prevent screen corruption and preserve the scroll 
+buffer on line-based hardware consoles (like s390x 3215).
 .RE
 .TP
 .B ping
@@ -98,7 +117,8 @@ with the @ character.
 .BR blogd (8),
 .BR systemd (1),
 .SH COPYRIGHT
-2015 Werner Fink,
-2015 SuSE Linux GmbH.
+2015,2026 Werner Fink,
+2015 SUSE Linux GmbH,
+2026 SUSE Software Solutions Germany GmbH.
 .SH AUTHOR
 Werner Fink <werner@suse.de>

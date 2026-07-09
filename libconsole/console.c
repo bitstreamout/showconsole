@@ -1712,6 +1712,46 @@ static void socket_handler(int fd)
 
 	break;
 
+    case MAGIC_SHOW_MSG:
+	if (magic[1] != '\002' || !arg) {
+	    errno = EINVAL;
+	    enqry = ANSWER_NCK;
+	    safeout(fd, enqry, strlen(enqry)+1, SSIZE_MAX);
+	    goto out;
+	}
+	if (*arg) {
+	    char *logmsg;
+	    int l = asprintf(&logmsg, "\n*** MESSAGE: %s ***\n", arg);
+	    if (l > 0) {
+		struct console *c;
+
+		/* 1. Write to /var/log/boot.log */
+		copylog(logmsg, l);
+		flushlog();
+
+		/* 2. Write to all active physical screens */
+		list_for_each_entry(c, &lcons, node) {
+		    if (c->fd < 0 || FD_ISSET(c->fd, &blocked))
+			continue;
+		    if (!console_silent)
+			c->out(c->fd, logmsg, l, c->max_canon);
+		}
+		free(logmsg);
+	    }
+	}
+	enqry = ANSWER_ACK;
+	safeout(fd, enqry, strlen(enqry)+1, SSIZE_MAX);
+	break;
+
+    case MAGIC_HIDE_MSG:
+	/* * No-Op for the screen. We intentionally ignore the text payload 
+	 * because line-based consoles (like s390x 3215) cannot clear lines.
+	 * We just acknowledge the command.
+	 */
+	enqry = ANSWER_ACK;
+	safeout(fd, enqry, strlen(enqry)+1, SSIZE_MAX);
+	break;
+
     default:
 
 	enqry = ANSWER_NCK;

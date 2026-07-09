@@ -52,6 +52,8 @@ static char getcmd(int argc, char *argv[])
 	{ "ping",		MAGIC_PING,		0, NULL	},	/* Ping */
 	{ "ask-for-password",	MAGIC_ASK_PWD,		0, NULL	},
  	{ "ask-question",	MAGIC_QUESTION,		0, NULL	},
+	{ "display-message",	MAGIC_SHOW_MSG,		0, NULL	},
+	{ "hide-message",	MAGIC_HIDE_MSG,		0, NULL	},
 	{ "ready",		MAGIC_SYS_INIT,		0, NULL	},	/* System ready */
 	{ "quit",		MAGIC_QUIT,		0, NULL	},	/* Quit */
 	{ "final",		MAGIC_FINAL,		0, NULL	},	/* Final */
@@ -256,6 +258,37 @@ int main(int argc, char *argv[])
 	    /* If we end up here, all attempts have failed */
 	    answer[0] = '\x15';				/* NACK */
 	    goto end_cmd;
+	}
+	case MAGIC_SHOW_MSG:
+	case MAGIC_HIDE_MSG: {
+	    char *text = "";
+	    int c;
+
+	    static struct option long_options[] = {
+		{"text", required_argument, 0, 't'},
+		{0, 0, 0, 0}
+	    };
+
+	    while ((c = getopt_long_only(argc, argv, "", long_options, NULL)) != -1) {
+		if (c == 't')
+		    text = optarg;
+	    }
+
+	    len = (int)strlen(text);
+	    if (len >= UCHAR_MAX) {
+		errno = EINVAL;
+		error("message string too long (max 254 chars)");
+	    }
+
+	    message = NULL;
+	    ret = asprintf(&message, "%c\002%c%s%n", cmd[0], len + 1, text, &len);
+	    if (ret < 0)
+		error("can not allocate message");
+	    
+	    safeout(fdsock, message, len + 1, SSIZE_MAX);
+	    free(message);
+	    
+	    break;
 	}
 	case '?':
 	default:
