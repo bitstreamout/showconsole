@@ -1,6 +1,10 @@
 /*
  * frobnicate.c
  *
+ * In-memory reversible obfuscation for cached passwords.
+ * This is not cryptographic protection against a memory-reading attacker.
+ * It is only meant to avoid trivial/plaintext exposure in memory.
+ *
  * Copyright 2015 Werner Fink, 2015 SuSE Linux GmbH.
  *
  * This source is free software; you can redistribute it and/or modify
@@ -12,29 +16,82 @@
 #include <errno.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/random.h>
 #include <sys/time.h>
 #include <sys/types.h>
 #include <unistd.h>
 
-static unsigned char randnum;
-static void initialseed(void) __attribute__((__constructor__));
-static void initialseed(void)
+#define FROBMASK_LEN	32
+
+static unsigned char frobmask[FROBMASK_LEN];
+static int frobmask_ready;
+
+static void init_frobmask(void)
 {
-    struct timeval tv;
-    gettimeofday (&tv, NULL);
-    srand (tv.tv_sec ^ tv.tv_usec ^ getpid());
-    randnum = (unsigned char)(rand() & 0xff);
-    if (!randnum)
-	randnum = 42;
+    size_t off = 0;
+ 
+    if (frobmask_ready)
+	return;
+ 
+    while (off < sizeof(frobmask)) {
+	ssize_t ret = getrandom(frobmask+off, sizeof(frobmask)-off, GRND_NONBLOCK);
+	if (ret < 0) {
+	    if (errno == EINTR)
+		continue;
+	    if (errno == EAGAIN)
+		break;
+	    break;
+	}
+	if (ret == 0)
+	    break;
+	off += (size_t)ret;
+    }
+ 
+    if (off == sizeof(frobmask))
+	goto out;
+
+    /*
+     * Early-boot fallback:
+     * weak but non-blocking, and still better than a single-byte XOR
+     */
+    {
+	struct timeval tv;
+	unsigned int seed;
+	size_t pos;
+
+	gettimeofday(&tv, NULL);
+	seed = (unsigned int)(tv.tv_sec ^ tv.tv_usec ^ getpid());
+ 
+	for (pos = 0; pos < sizeof(frobmask); pos++) {
+	    seed = seed * 1103515245u + 12345u;
+	    frobmask[pos] = (unsigned char)((seed >> 16) & 0xff);
+	}
+ 
+	/* Avoid an all-zero mask, just in case */
+	for (pos = 0; pos < sizeof(frobmask); pos++) {
+	    if (frobmask[pos] != 0)
+		break;
+	}
+
+	if (pos == sizeof(frobmask))
+	    frobmask[0] = 42;
+    }
+out:    
+    frobmask_ready = 1;
 }
 
 void *frobnicate(void *in, const size_t len)
 {
     unsigned char *ptr = (unsigned char *)in;
-    ssize_t pos = len;
+    size_t pos;
 
-    while (pos-- > 0)
-	*ptr++ ^= randnum;
+    if (!ptr || len == 0)
+	return in;
+
+    init_frobmask();
+
+    for (pos = 0; pos < len; pos++)
+	ptr[pos] ^= frobmask[pos % FROBMASK_LEN];
 
     return in;
 }
