@@ -93,6 +93,7 @@ static inline int pidfd_open(pid_t pid, unsigned int flags)
  * Password/Passphrase is asked if true.
  */
 volatile sig_atomic_t asking;
+static int ask_mode = 1;	/* 1 = Password, 2 = Question */
 
 /*
  * Ths is the socket fd for the answer.
@@ -1475,6 +1476,7 @@ static void socket_handler(int fd)
 
     switch (magic[0]) {
     case MAGIC_ASK_PWD:
+    case MAGIC_QUESTION:
 	if (magic[1] != '\002') {
 	    errno = EINVAL;
 	    warn("Got password invalid request for prompt");
@@ -1493,6 +1495,7 @@ static void socket_handler(int fd)
 	    if (pwprompt)
 		free(pwprompt);
 	    pwprompt = strdup(arg);
+	    ask_mode = (magic[0] == MAGIC_QUESTION) ? 2 : 1;
 
 	    epoll_answer_once(fd, &epoll_socket_answer);
 	    goto job;
@@ -1507,6 +1510,7 @@ static void socket_handler(int fd)
 	}
 	password[0] = '\0';
 	pwprompt = strdup(arg);
+	ask_mode = (magic[0] == MAGIC_QUESTION) ? 2 : 1;
 
 	epoll_answer_once(fd, &epoll_socket_answer);
 
@@ -1760,7 +1764,7 @@ static void ask_for_password(void)
 #ifdef NO_SIGNALFD
     set_signal(SIGCHLD, NULL, chld_handler);
 #endif
-    asking = 1;				/* Show only our question about password/passphrase */
+    asking = ask_mode;			/* Show only our question about password/passphrase */
 
     /* pwprompt */
     list_for_each_entry(c, &lcons, node) {
@@ -1932,17 +1936,24 @@ static void ask_for_password(void)
 	    /* We read byte for byte */
 	    newtio = c->ctio;
 #if defined(__s390__) || defined(__s390x__)
-	    if (c->flags & CON_3270)
-		/*
-		 * ONLY the 3270 block-mode terminal MUST keep ICANON enabled!
-		 * Otherwise the tty3270 driver switches to raw mode and fails
-		 * to apply the non-display hardware attribute to the input field.
-		 */
-		newtio.c_lflag &= ~(ECHO);
-	    else
-		newtio.c_lflag &= ~(ECHO|ICANON);
+ 	    if (asking == 2) {
+		newtio.c_lflag = (newtio.c_lflag | ECHO) & ~ICANON;
+	    } else {
+		if (c->flags & CON_3270)
+		    /*
+		    * ONLY the 3270 block-mode terminal MUST keep ICANON enabled!
+		    * Otherwise the tty3270 driver switches to raw mode and fails
+		    * to apply the non-display hardware attribute to the input field.
+		    */
+		    newtio.c_lflag &= ~(ECHO);
+		else
+		    newtio.c_lflag &= ~(ECHO|ICANON);
+	    }
 #else
-	    newtio.c_lflag &= ~(ECHO|ICANON);
+ 	    if (asking == 2)
+ 		newtio.c_lflag = (newtio.c_lflag | ECHO) & ~ICANON;
+ 	    else
+ 		newtio.c_lflag &= ~(ECHO|ICANON);
 #endif
 	    newtio.c_lflag |= ECHONL;
 	    newtio.c_cc[VTIME] = 0;

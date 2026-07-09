@@ -13,7 +13,7 @@ blogctl \- Control the boot loggind daemon blogd
 .SH SYNOPSIS
 .\"
 .B /sbin/blogctl
-.RI [ ping | quit\ [--wait] | root=<path> | ready | close ]
+.RI [ ping | quit\ [--wait] | root=<path> | ready | close | ask-for-password | ask-question ]
 .SH DESCRIPTION
 .B blogctl
 may be used to check if a
@@ -21,6 +21,37 @@ may be used to check if a
 daemon is active as well as to send comands to such a daemon.
 .SH COMANDS
 The following commands are known:
+.TP
+.B ask-for-password
+Ask the user for a password on the system console.
+.RS
+.TP
+.BI \-\-command= STRING
+Command to send the password to via standard input.
+.TP
+.BI \-\-prompt= STRING
+Message to display when asking for the password.
+.TP
+.BI \-\-number-of-tries= INTEGER
+Number of times to ask before giving up (requires \fB\-\-command\fR).
+.TP
+.B \-\-dont-pause-progress
+Silently ignored by \fBblogctl\fR (provided for plymouth compatibility).
+.RE
+.TP
+.B ask-question
+Ask the user a question on the system console.
+.RS
+.TP
+.BI \-\-command= STRING
+Command to send the answer to via standard input.
+.TP
+.BI \-\-prompt= STRING
+Message to display when asking the question.
+.TP
+.B \-\-dont-pause-progress
+Silently ignored by \fBblogctl\fR.
+.RE
 .TP
 .B ping
 Send a simply ping request if

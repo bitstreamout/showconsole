@@ -9,9 +9,12 @@
  * (at your option) any later version.
  */
 
+#include <endian.h>	/* For le32toh */
 #include <err.h>
+#include <getopt.h>
 #include <limits.h>
 #include <stdarg.h>
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 #include <poll.h>
@@ -47,6 +50,8 @@ static char getcmd(int argc, char *argv[])
     } cmds[] = {
 	{ "root=",		MAGIC_CHROOT,		1, NULL	},	/* New root */
 	{ "ping",		MAGIC_PING,		0, NULL	},	/* Ping */
+	{ "ask-for-password",	MAGIC_ASK_PWD,		0, NULL	},
+ 	{ "ask-question",	MAGIC_QUESTION,		0, NULL	},
 	{ "ready",		MAGIC_SYS_INIT,		0, NULL	},	/* System ready */
 	{ "quit",		MAGIC_QUIT,		0, NULL	},	/* Quit */
 	{ "final",		MAGIC_FINAL,		0, NULL	},	/* Final */
@@ -151,6 +156,107 @@ int main(int argc, char *argv[])
 	case MAGIC_REACTIVATE:
 	    safeout(fdsock, cmd, strlen(cmd)+1, SSIZE_MAX);
 	    break;
+	case MAGIC_ASK_PWD:
+	case MAGIC_QUESTION: {
+	    char *prompt = NULL;
+	    char *command = NULL;
+	    int c, tries = 1;
+
+	    /* Parse the parameters */
+	    static struct option long_options[] = {
+		{"prompt",		required_argument, 0, 'p'},
+		{"command",		required_argument, 0, 'c'},
+		{"number-of-tries",	required_argument, 0, 'n'},
+		{"dont-pause-progress",	no_argument,	   0, 'd'},
+		{0, 0, 0, 0}
+	    };
+
+	    /* * getopt_long_only parst ab argv[optind]. Da wir getcmd()
+	     * benutzt haben, steht optind genau richtig auf der ersten Option.
+	     */
+	    while ((c = getopt_long_only(argc, argv, "", long_options, NULL)) != -1) {
+		switch (c) {
+		    case 'p':
+			prompt = optarg;
+			break;
+		    case 'c':
+			command = optarg;
+			break;
+		    case 'n':
+			tries = atoi(optarg);
+			break;
+		    case 'd':
+			/* Ignored by blogd as it is useless  */
+			break;
+		    case '?':
+		    default:
+			break;
+		}
+	    }
+
+	    if (!prompt)
+		prompt = (cmd[0] == MAGIC_ASK_PWD) ? "Password" : "Question";
+
+	    len = (int)strlen(prompt);
+	    if (len >= UCHAR_MAX) {
+		errno = EINVAL;
+		error("prompt string too long (max 254 chars)");
+	    }
+
+	    do {
+		message = NULL;
+		ret = asprintf(&message, "%c\002%c%s%n", cmd[0], len + 1, prompt, &len);
+		if (ret < 0)
+		    error("can not allocate message");
+		
+		safeout(fdsock, message, len + 1, SSIZE_MAX);
+		free(message);
+
+		/* Wait for the users answer */
+		if (can_read(fdsock, -1)) {
+		    char ans;
+		    safein(fdsock, &ans, 1);
+
+		    if (ans == '\t') {			/* ANSWER_MLT */
+			uint32_t plen;
+			safein(fdsock, &plen, sizeof(plen));
+			plen = le32toh(plen);	/* Plymouth sends le32 */
+
+			char *pwd = calloc(1, plen + 1);
+			if (!pwd)
+			    error("memory allocation failed");
+			    
+			safein(fdsock, pwd, plen);
+
+			if (command) {
+			    FILE *p = popen(command, "w");
+			    if (p) {
+				fputs(pwd, p);
+				if (pclose(p) == 0) {
+				    free(pwd);
+				    answer[0] = '\x6';	/* Fake ACK for success */
+				    goto end_cmd;
+				}
+			    }
+			} else {
+			    printf("%s\n", pwd);
+			    free(pwd);
+			    answer[0] = '\x6';		/* Fake ACK for success */
+			    goto end_cmd;
+			}
+			free(pwd);
+		    } else if (ans == '\x5') { 
+			/* ANSWER_ENQ: Cancel / No input */
+			break;
+		    }
+		}
+		tries--;
+	    } while (tries > 0);
+
+	    /* If we end up here, all attempts have failed */
+	    answer[0] = '\x15';				/* NACK */
+	    goto end_cmd;
+	}
 	case '?':
 	default:
 	    goto fail;
@@ -160,7 +266,7 @@ int main(int argc, char *argv[])
 	    answer[0] = '\0';
 	    safein(fdsock, &answer[0], sizeof(answer));
 	}
-
+end_cmd:
 	/* If we received an ACK (0x06) and --wait was requested, block until closed */
 	if (do_wait && answer[0] == '\x6')
 	    wait_for_blogd_close(fdsock);
