@@ -24,22 +24,17 @@
 #define FROBMASK_LEN	32
 
 static unsigned char frobmask[FROBMASK_LEN];
-static int frobmask_ready;
 
-static void init_frobmask(void)
+static void initialseed(void) __attribute__((__constructor__));
+static void initialseed(void)
 {
     size_t off = 0;
- 
-    if (frobmask_ready)
-	return;
  
     while (off < sizeof(frobmask)) {
 	ssize_t ret = getrandom(frobmask+off, sizeof(frobmask)-off, GRND_NONBLOCK);
 	if (ret < 0) {
 	    if (errno == EINTR)
 		continue;
-	    if (errno == EAGAIN)
-		break;
 	    break;
 	}
 	if (ret == 0)
@@ -48,11 +43,11 @@ static void init_frobmask(void)
     }
  
     if (off == sizeof(frobmask))
-	goto out;
+	return;
 
     /*
      * Early-boot fallback:
-     * weak but non-blocking, and still better than a single-byte XOR
+     * weak but stable for the process lifetime and inherited across fork().
      */
     {
 	struct timeval tv;
@@ -70,14 +65,11 @@ static void init_frobmask(void)
 	/* Avoid an all-zero mask, just in case */
 	for (pos = 0; pos < sizeof(frobmask); pos++) {
 	    if (frobmask[pos] != 0)
-		break;
+		return;
 	}
 
-	if (pos == sizeof(frobmask))
-	    frobmask[0] = 42;
+	frobmask[0] = 42;
     }
-out:    
-    frobmask_ready = 1;
 }
 
 void *frobnicate(void *in, const size_t len)
@@ -87,8 +79,6 @@ void *frobnicate(void *in, const size_t len)
 
     if (!ptr || len == 0)
 	return in;
-
-    init_frobmask();
 
     for (pos = 0; pos < len; pos++)
 	ptr[pos] ^= frobmask[pos % FROBMASK_LEN];
