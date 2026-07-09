@@ -52,7 +52,7 @@ int open_tty(const char *name, int flags)
 int request_tty(const char *tty)
 {
     struct sigaction saved_sighup;
-    int fd = -1, nd, wd;
+    int fd = -1, nd, wd = -1;
 #if defined(__s390__) || defined(__s390x__)
     struct stat sb;
 #endif
@@ -73,14 +73,14 @@ int request_tty(const char *tty)
 
     wd = inotify_add_watch(nd, tty, IN_CLOSE);
     if (wd < 0) {
-	close(nd);
 	warn("can not add a watch on inotifier %d for %s", nd, tty);
+	close(nd);
 	return -1;
     }
 
     do {
 	ssize_t len;
-	int ret, flags;
+	int ret, flags, got_close = 0;
 
 	clear_input(nd);
 
@@ -90,7 +90,7 @@ int request_tty(const char *tty)
 	    break;
 	}
 
-	set_signal(SIGHUP, NULL, SIG_IGN);
+	set_signal(SIGHUP, &saved_sighup, SIG_IGN);
 	ret = ioctl(fd, TIOCSCTTY, 0);
 	reset_signal(SIGHUP, &saved_sighup);
 
@@ -114,8 +114,8 @@ int request_tty(const char *tty)
 	if (ret >= 0)
 	    break;	/* Success */
 
-	do {
 # define BUF_LEN    ((sizeof(struct inotify_event)+NAME_MAX+1))
+	while (!got_close) {
 	    unsigned char buf[BUF_LEN];
 	    ssize_t e;
 
@@ -134,14 +134,15 @@ int request_tty(const char *tty)
 		struct inotify_event *ev;
 
 		ev = (struct inotify_event *)&buf[e];
-		if (ev->wd == wd && (ev->mask&IN_CLOSE))
+		if (ev->wd == wd && (ev->mask & IN_CLOSE)) {
+		    got_close = 1;
 		    break;
+		}
 
 		e += sizeof(struct inotify_event) + ev->len;
 	    }
-
 # undef BUF_LEN
-	} while (0);
+	}
 
 	tcdrain(fd);
 	close(fd);
@@ -149,6 +150,8 @@ int request_tty(const char *tty)
 
     } while(0);
 out:
+    if (wd >= 0)
+ 	(void)inotify_rm_watch(nd, wd);
     close(nd);
     return fd;
 }
