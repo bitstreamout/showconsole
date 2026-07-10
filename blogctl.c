@@ -1,7 +1,8 @@
 /*
- * blogd.c
+ * blogctl.c
  *
- * Copyright 2015 Werner Fink, 2015 SuSE Linux GmbH.
+ * Copyright 2015, 2026 Werner Fink, 2015 SuSE Linux GmbH,
+ * 2026 SUSE Software Solutions Germany GmbH
  *
  * This source is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -40,6 +41,7 @@ static int getsocket(void)
     return fd;
 }
 
+#define MAGIC_HELP	0x19
 static char getcmd(int argc, char *argv[])
 {
     static const struct {
@@ -50,16 +52,17 @@ static char getcmd(int argc, char *argv[])
     } cmds[] = {
 	{ "root=",		MAGIC_CHROOT,		1, NULL	},	/* New root */
 	{ "ping",		MAGIC_PING,		0, NULL	},	/* Ping */
-	{ "ask-for-password",	MAGIC_ASK_PWD,		0, NULL	},
- 	{ "ask-question",	MAGIC_QUESTION,		0, NULL	},
-	{ "display-message",	MAGIC_SHOW_MSG,		0, NULL	},
-	{ "hide-message",	MAGIC_HIDE_MSG,		0, NULL	},
+	{ "ask-for-password",	MAGIC_ASK_PWD,		0, NULL	},	/* Ask for password */
+ 	{ "ask-question",	MAGIC_QUESTION,		0, NULL	},	/* Ask a question */
+	{ "display-message",	MAGIC_SHOW_MSG,		0, NULL	},	/* Display a message */
+	{ "hide-message",	MAGIC_HIDE_MSG,		0, NULL	},	/* Sorry, no backroll */
 	{ "ready",		MAGIC_SYS_INIT,		0, NULL	},	/* System ready */
 	{ "quit",		MAGIC_QUIT,		0, NULL	},	/* Quit */
 	{ "final",		MAGIC_FINAL,		0, NULL	},	/* Final */
 	{ "close",		MAGIC_CLOSE,		0, NULL	},	/* Close logging only */
 	{ "deactivate",		MAGIC_DEACTIVATE,	0, NULL	},	/* Deactivate logging */
 	{ "reactivate",		MAGIC_REACTIVATE,	0, NULL	},	/* Reactivate logging */
+	{ "help",		MAGIC_HELP,		0, NULL	},	/* End Of Medium aka Help */
 	{}
     }, *cmd = cmds;
     char ret = (char)-1;
@@ -124,11 +127,12 @@ int main(int argc, char *argv[])
     cmd[1] = '\0';
     answer[0] = '\x15';
 
-    fdsock = getsocket();
-    if (fdsock < 0)
-	error("no blogd active");
-
     while ((cmd[0] = getcmd(argc, argv)) != (char)-1) {
+	if (cmd[0] != MAGIC_HELP && fdsock < 0) {
+	    fdsock = getsocket();
+	    if (fdsock < 0)
+		error("no blogd active");
+	}
 	switch (cmd[0]) {
 	case MAGIC_CHROOT:
 	    root = optarg;
@@ -173,8 +177,9 @@ int main(int argc, char *argv[])
 		{0, 0, 0, 0}
 	    };
 
-	    /* * getopt_long_only parst ab argv[optind]. Da wir getcmd()
-	     * benutzt haben, steht optind genau richtig auf der ersten Option.
+	    /* 
+	     * The getopt_long_only function parses starting from argv[optind].
+	     * Since we used getcmd(), optind is pointing exactly at the first option.
 	     */
 	    while ((c = getopt_long_only(argc, argv, "", long_options, NULL)) != -1) {
 		switch (c) {
@@ -290,6 +295,30 @@ int main(int argc, char *argv[])
 	    
 	    break;
 	}
+	case MAGIC_HELP:
+	    printf("Usage: /sbin/blogctl [COMMAND] [OPTIONS]\n\n"
+		   "Commands:\n"
+		   "  ping                  Check if blogd is active\n"
+		   "  quit [--wait]         Gracefully terminate blogd\n"
+		   "  root=<path>           Set new root file system path\n"
+		   "  ready                 Signal that file systems are writable\n"
+		   "  close                 Finish logging, allow systemd to unmount\n"
+		   "  ask-for-password      Ask the user for a password\n"
+		   "    --prompt=STRING       Message to display\n"
+		   "    --command=STRING      Command to receive password via stdin\n"
+		   "    --number-of-tries=INT Number of retries\n"
+		   "  ask-question          Ask the user a question\n"
+		   "    --prompt=STRING       Message to display\n"
+		   "    --command=STRING      Command to receive answer via stdin\n"
+		   "  display-message       Display a status message\n"
+		   "    --text=STRING         The message text\n"
+		   "  hide-message          Hide a status message\n"
+		   "  deactivate            Disconnect blogd from system console\n"
+		   "  reactivate            Reconnect blogd to system console\n"
+		   "  final                 Rotate boot.log to boot.old\n"
+		   "  help                  Show this help text\n");
+	    answer[0] = '\x6';
+	    goto fail;
 	case '?':
 	default:
 	    goto fail;
@@ -309,6 +338,8 @@ end_cmd:
 
     argv += optind;
     argc -= optind;
+    if (argc != 0)
+	printf("Usage: /sbin/blogctl help\n");
 fail:
     if (fdsock >= 0)
 	close(fdsock);

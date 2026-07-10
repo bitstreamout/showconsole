@@ -172,7 +172,7 @@ extern void epoll_answer_once(int fd, void *fptr);
 extern void epoll_reenable(int fd);
 extern void epoll_delete(int fd);
 extern void (*epoll_handle(void *ptr, int *fd))(int);
-extern void epoll_close_fd(void);
+extern void epoll_close_fd(int keep_fd);
 
 /* frobnicate.c */
 extern void *frobnicate(void *in, const size_t len);

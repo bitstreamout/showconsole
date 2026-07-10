@@ -893,7 +893,7 @@ void closeIO(void)
 	fdsock = -1;
     }
 
-    epoll_close_fd();
+    epoll_close_fd(-1);
     if (epfd >= 0)
 	close(epfd);
 
@@ -1370,11 +1370,37 @@ static void __attribute__((noinline)) epoll_pwd_done(int fd)
 		coldstart_next();
 	}
     } else {
+	int still_running = 0;
+
 	/* Clear Zombies */
 	list_for_each_entry(c, &lcons, node) {
 	    if (c->pid == info.si_pid) {
 		c->pid = -1;
 	    }
+	}
+
+	/* Check, if there is any active child for this prompt */
+	list_for_each_entry(c, &lcons, node) {
+	    if (c->pid > 0)
+		still_running = 1;
+	}
+	    
+	if (!still_running) {
+	    /* All consoles have failed. cancel the prompt! */
+	    asking = 0;
+	    if (coldstart_active && coldstart_socket_path) {
+		free(coldstart_socket_path);
+		coldstart_socket_path = NULL;
+	    }
+	    if (pwd_client_fd >= 0) {
+		const char *enq = ANSWER_ENQ; /* ENQ = send Cancel/Abort to blogctl */
+		safeout(pwd_client_fd, enq, strlen(enq)+1, SSIZE_MAX);
+		epoll_delete(pwd_client_fd);
+		close(pwd_client_fd);
+		pwd_client_fd = -1;
+	    }
+	    if (coldstart_active)
+		coldstart_next();
 	}
     }
 }
@@ -1787,6 +1813,7 @@ static void ask_for_password(void)
 {
     struct console *c;
     size_t len;
+    int any_running = 0;
 
     if (!pwprompt || !*pwprompt)
 	return;
@@ -1840,16 +1867,18 @@ static void ask_for_password(void)
 		close(fdsock);
 	    if (flog)
 		(void)fclose(flog);
+	    if (pwd_client_fd >= 0)
+		close(pwd_client_fd);
 	    if (epfd) {
-		epoll_close_fd();
+		epoll_close_fd(c->fd);	/* We keep c->fd */
 		close(epfd);
 	    }
 	    FD_ZERO(&blocked);
 	    vc_reconnect = NULL;
 
-	    dup2(1, 2);
 	    dup2(c->fd, 0);
 	    dup2(c->fd, 1);
+	    dup2(c->fd, 2);
 	    currenttty = c->tty;	/* Used in readpw() in case of an error */
 
 	    list_for_each_entry(d, &lcons, node)
@@ -1870,8 +1899,11 @@ static void ask_for_password(void)
 	    set_signal(SIGTERM, NULL, SIG_DFL);
 	    set_signal(SIGSYS,  NULL, SIG_DFL);
 	    set_signal(SIGQUIT, NULL, SIG_IGN);
+	    set_signal(SIGALRM, NULL, SIG_DFL);	/* Ensure ALRM kills the child */
 
+	    alarm(2);	/* Set a 2 second deadline for busy terminals (e.g. X11) */
 	    fdc = request_tty(c->tty);
+	    alarm(0);	/* Clear deadline */
 	    if (fdc < 0)
 		_exit(1);
 
@@ -2066,5 +2098,27 @@ static void ask_for_password(void)
 		}
 	    } while (c->pid != -1 && errno == EINTR);
 	}
+    }
+
+    /* Fallback: When we waited synchronously and everything failed immediately */
+    list_for_each_entry(c, &lcons, node) {
+	if (c->pid > 0)
+	    any_running = 1;
+    }
+    if (asking && !any_running) {
+	asking = 0;
+	if (coldstart_active && coldstart_socket_path) {
+	    free(coldstart_socket_path);
+	    coldstart_socket_path = NULL;
+	}
+	if (pwd_client_fd >= 0) {
+	    const char *enq = ANSWER_ENQ;
+	    safeout(pwd_client_fd, enq, strlen(enq)+1, SSIZE_MAX);
+	    epoll_delete(pwd_client_fd);
+	    close(pwd_client_fd);
+	    pwd_client_fd = -1;
+	}
+	if (coldstart_active)
+	    coldstart_next();
     }
 }

@@ -40,6 +40,18 @@ static inline void epoll_addition(int fd, void *fptr, uint32_t flags)
 
     ev.events = flags;
 
+    /* Prevent EEXIST crash: If fd is already registered, just modify it */
+    list_for_each_entry(ep, &lpolls, watch) {
+	if (ep->fd == fd) {
+	    ep->handle = (typeof(ep->handle))fptr;
+	    ev.data.ptr = (void*)ep;
+	    ret = epoll_ctl(epfd, EPOLL_CTL_MOD, fd, &ev);
+	    if (ret < 0)
+		error("can not modify %d file descriptor on epoll file descriptor", fd);
+	    return;
+	}
+    }
+
     if (posix_memalign((void**)&ep, sizeof(void*), align_up(struct epolls, void*)) != 0 || !ep)
 	error("memory allocation");
 
@@ -168,10 +180,12 @@ void (*epoll_handle(void *ptr, int *fd))(int)
 }
 
 /* Only usefull within forked sub processes */
-void epoll_close_fd(void)
+void epoll_close_fd(int keep_fd)
 {
     struct epolls *ep;
 
-    list_for_each_entry(ep, &lpolls, watch)
-	close(ep->fd);
+    list_for_each_entry(ep, &lpolls, watch) {
+	if (ep->fd >= 0 && ep->fd != keep_fd)
+	    close(ep->fd);
+    }
 }
