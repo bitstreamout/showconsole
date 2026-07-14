@@ -167,6 +167,7 @@ extern void popd(void);
 
 /* epoll.c */
 extern void epoll_addread(int fd, void *fptr);
+extern void epoll_addsysfs(int fd, void *fptr);
 extern void epoll_addwrite(int fd, void *fptr);
 extern void epoll_answer_once(int fd, void *fptr);
 extern void epoll_reenable(int fd);
@@ -240,6 +241,17 @@ extern int restorespool(int fd);
 extern void parseterm(char *msg);
 extern void parsespool(char *msg);
 extern void warning3215(int fd);
+#else
+/* vt.c */
+extern int vt_supported(void);
+extern int vt_is_graphics(int fd);
+extern int vt_is_text(int fd);
+extern int vt_get_mode(int fd);
+extern int vt_set_text_mode(int fd);
+extern int vt_get_free(int fd);
+extern int vt_get_active(int fd);
+extern int vt_switch(int fd, int vtno);
+extern void vt_disallocate(int fd, int vtno);
 #endif
 
 #define MAX_PASSLEN	LINE_MAX

@@ -19,7 +19,6 @@
 #include <sys/stat.h>
 #include <sys/ioctl.h>
 #include <sys/vt.h>
-#include <sys/kd.h>
 #include <time.h>
 #include <pty.h>
 #include <stdio.h>
@@ -291,13 +290,13 @@ int main(int argc, char *argv[])
     parse_cmdline();	/* Parse the kernel command line for blog.<key>(=<val>) */
     val = value_cmdline("silent");
     if (val) {
-        if (strcmp(val, "1") == 0 || strcasecmp(val, "on") == 0 || strcasecmp(val, "yes") == 0 || strcasecmp(val, "true") == 0)
-            console_silent = 1;
+	if (strcmp(val, "1") == 0 || strcasecmp(val, "on") == 0 || strcasecmp(val, "yes") == 0 || strcasecmp(val, "true") == 0)
+	    console_silent = 1;
     }
     val = value_cmdline("coldboot");
     if (val) {
-        if (strcmp(val, "1") == 0 || strcasecmp(val, "on") == 0 || strcasecmp(val, "yes") == 0 || strcasecmp(val, "true") == 0)
-            coldboot = 1;
+	if (strcmp(val, "1") == 0 || strcasecmp(val, "on") == 0 || strcasecmp(val, "yes") == 0 || strcasecmp(val, "true") == 0)
+	    coldboot = 1;
     }
 
     myname = program_invocation_short_name;
@@ -478,9 +477,12 @@ int main(int argc, char *argv[])
 	    cfsetispeed(&c->otio, ispeed);
 	    cfsetospeed(&c->otio, ospeed);
 	} else {
-	    if (major(c->dev) == 4 && minor(c->dev) <= 63)
-		ioctl(c->fd, KDSETMODE, KD_TEXT);	/* Enforce text mode */
-
+#if !defined(__s390__) && !defined(__s390x__)
+	    if (major(c->dev) == 4 && minor(c->dev) <= 63) {
+		if (!vt_is_graphics(c->fd))
+		    vt_set_text_mode(c->fd);		/* Enforce text mode */
+	    }
+#endif
 	    c->otio.c_iflag |= (ICRNL | IXON);
 	    c->otio.c_iflag &= ~(INLCR | IGNCR | BRKINT);
 	    c->otio.c_oflag |= (ONLCR | OPOST);

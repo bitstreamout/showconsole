@@ -171,10 +171,33 @@ static void chld_handler(int sig) {
  * Console list
  */
 list_t lcons = { &(lcons), &(lcons) };
+#if !defined(__s390__) && !defined(__s390x__)
+static int active_vt_fd = -1;
+static struct console *dyn_vt_cons = NULL;	/* For dynamic allocated VT */
+static void epoll_vt_active_change(int fd);
+#endif
 
 static __attribute__((destructor)) void lcons_shutdown(void)
 {
     struct console *c, *n;
+
+#if !defined(__s390__) && !defined(__s390x__)
+    if (dyn_vt_cons) {
+	int old_vt = -1;
+	if (major(dyn_vt_cons->dev) == 4)
+	    old_vt = minor(dyn_vt_cons->dev);
+
+	if (old_vt > 0) {
+	    int fd_tty0 = open("/dev/tty0", O_RDWR | O_CLOEXEC);
+	    if (fd_tty0 >= 0) {
+		vt_disallocate(fd_tty0, old_vt);
+		close(fd_tty0);
+	    }
+	}
+	/* Set pointer to NULL, the final free happens in the lcons loop below */
+	dyn_vt_cons = NULL;
+    }
+#endif
 
     if (list_empty(&lcons))
 	return;
@@ -606,6 +629,17 @@ void prepareIO(int (*rfunc)(int), const int listen, const int input)
     vc_reconnect = rfunc;
     fdsock  = listen;			/* We use only ONE socket ... see also safeout() */
     fdread  = input;
+
+#if !defined(__s390__) && !defined(__s390x__)
+    if (vt_supported()) {
+	active_vt_fd = open("/sys/devices/virtual/tty/tty0/active", O_RDONLY|O_CLOEXEC);
+	if (active_vt_fd >= 0) {
+	    epoll_addsysfs(active_vt_fd, &epoll_vt_active_change);
+	    /* Trigger initially once to get the actual VT */
+	    epoll_vt_active_change(active_vt_fd);
+	}
+    }
+#endif
 
     /* Phase 1: Scan for pending systemd password queries */
     scan_ask_directory("/run/systemd/ask-password");
@@ -1120,6 +1154,82 @@ fallback:
 	error("/dev/console is not a valid fallback\n");
     free(tty);
 }
+
+#if !defined(__s390__) && !defined(__s390x__)
+/*
+ * Be noted and handle change of active virtual console
+ */
+static void epoll_vt_active_change(int fd)
+{
+    char tty_name[32];
+    char path[64];
+    struct stat st;
+
+    /* Rewind file descriptor before reading EPOLLPRI data */
+    if (lseek(fd, 0, SEEK_SET) < 0)
+	return;
+
+    if (read(fd, tty_name, sizeof(tty_name)-1) > 0) {
+	struct console *c;
+	dev_t target_dev;
+	int found = 0;
+
+	tty_name[strcspn(tty_name, "\n")] = 0;	/* remove newline */
+
+	/* Close old virtual console and remove it from lcons */
+	if (dyn_vt_cons) {
+	    struct console *n;
+	    int old_vt = -1;
+
+	    if (major(dyn_vt_cons->dev) == 4)
+		old_vt = minor(dyn_vt_cons->dev);
+
+	    list_for_each_entry_safe(c, n, &lcons, node) {
+		if (c != dyn_vt_cons)
+		    continue;
+		delete(&c->node);
+		if (c->fd >= 0)
+		    close(c->fd);
+		free(c);
+		dyn_vt_cons = NULL;
+		break;
+	    }
+
+	    if (old_vt > 0) {
+		int fd_tty0 = open("/dev/tty0", O_RDWR | O_CLOEXEC);
+		if (fd_tty0 >= 0) {
+		    vt_disallocate(fd_tty0, old_vt);
+		    close(fd_tty0);
+		}
+	    }
+	}
+
+	snprintf(path, sizeof(path), "/dev/%s", tty_name);
+	target_dev = (stat(path, &st) == 0 && S_ISCHR(st.st_mode)) ? st.st_rdev : makedev(4,0);
+
+	list_for_each_entry(c, &lcons, node) {
+	    if (c->dev == st.st_rdev) {
+		found++;
+		break;
+	    }
+	}
+
+	if (!found) {
+	    struct console *d = NULL;
+	    consalloc(&d, path, CON_CONSDEV, st.st_rdev, 0);
+
+	    list_for_each_entry(c, &lcons, node) {
+		if (c->dev == target_dev) {
+		    dyn_vt_cons = c;
+		    break;
+		}
+	    }
+	    if (dyn_vt_cons)
+		consinitIO(dyn_vt_cons);
+	}
+    }
+}
+#endif
 
 /*
  * Do handle the console in data
@@ -1849,9 +1959,12 @@ static void ask_for_password(void)
 	    struct console *d;
 	    char *message;
 	    int eightbit;
-	    int len, fdc, tflags;
+	    int len, fdc = -1, tflags;
 #if defined(__s390__) || defined(__s390x__)
 	    int vmcpfd = -1;
+#else
+	    int fd_tty0 = -1, orig_vt = -1, prompt_vt = -1;
+	    char newtty[32];
 #endif
 #ifndef NO_SIGNALFD
 	    sigset_t empty_mask;
@@ -1899,11 +2012,68 @@ static void ask_for_password(void)
 	    set_signal(SIGTERM, NULL, SIG_DFL);
 	    set_signal(SIGSYS,  NULL, SIG_DFL);
 	    set_signal(SIGQUIT, NULL, SIG_IGN);
-	    set_signal(SIGALRM, NULL, SIG_DFL);	/* Ensure ALRM kills the child */
 
-	    alarm(2);	/* Set a 2 second deadline for busy terminals (e.g. X11) */
-	    fdc = request_tty(c->tty);
-	    alarm(0);	/* Clear deadline */
+#if !defined(__s390__) && !defined(__s390x__)
+	    if (major(c->dev) == 4 && vt_supported()) {
+		int blocked = 0;
+		/* Open the terminal without hanging or be blocked */
+		int fdc_test = open(c->tty, O_RDWR | O_NOCTTY | O_NONBLOCK | O_CLOEXEC);
+		
+		if (fdc_test >= 0) {
+		    /* Is terminal locked by getty/login/shell ? */
+		    if (ioctl(fdc_test, TIOCSCTTY, 0) < 0 && errno == EPERM)
+			blocked = 1;
+		    /* It the terminal in graphic mode (X11/Wayland)? */
+		    if (vt_is_graphics(fdc_test))
+			blocked = 1;
+
+		    if (blocked) {
+			close(fdc_test);
+		    } else {
+			/* Terminal is free! Use it and remove O_NONBLOCK */
+			int flags = fcntl(fdc_test, F_GETFL);
+			fcntl(fdc_test, F_SETFL, flags & ~O_NONBLOCK);
+			fdc = fdc_test;
+
+			/* Are we here? */
+			fd_tty0 = open("/dev/tty0", O_RDWR | O_CLOEXEC);
+			if (fd_tty0 >= 0) {
+			    orig_vt = vt_get_active(fd_tty0);
+			    int target_vt = minor(c->dev);
+ 
+			    /* If the user is e.g. on tty2 (X11/Wayland), but the terminal at tty7 -> switch over! */
+			    if (orig_vt > 0 && target_vt > 0 && orig_vt != target_vt) {
+				vt_switch(fd_tty0, target_vt);
+				prompt_vt = target_vt; /* Remember: to find back to tty2 */
+			    }
+			}
+		    }
+		} else {
+		    blocked = 1;
+		}
+
+		if (blocked) {
+		    if (fd_tty0 < 0)
+			fd_tty0 = open("/dev/tty0", O_RDWR | O_CLOEXEC);
+
+		    if (fd_tty0 >= 0) {
+			orig_vt = vt_get_active(fd_tty0);
+			prompt_vt = vt_get_free(fd_tty0);
+
+			if (prompt_vt > 0) {
+			    vt_switch(fd_tty0, prompt_vt);
+			    snprintf(newtty, sizeof(newtty), "/dev/tty%d", prompt_vt);
+			    currenttty = newtty;
+			    fdc = open(currenttty, O_RDWR | O_CLOEXEC);
+			    if (fdc >= 0)
+				ioctl(fdc, TIOCSCTTY, 0);
+			}
+		    }
+		}
+	    }
+#endif
+	    if (fdc < 0)
+		fdc = request_tty(c->tty);
 	    if (fdc < 0)
 		_exit(1);
 
@@ -2058,6 +2228,18 @@ static void ask_for_password(void)
 		warn("can not read password");
 
 	    password = frobnicate(password, *pwsize);
+
+#if !defined(__s390__) && !defined(__s390x__)
+	    if (orig_vt > 0 && prompt_vt > 0) {
+		if (fdc >= 0) {
+		    close(fdc);
+		    fdc = -1;
+		}
+		vt_switch(fd_tty0, orig_vt);
+	    }
+	    if (fd_tty0 >= 0)
+		close(fd_tty0);
+#endif
 	    _exit(0);
 	}
 

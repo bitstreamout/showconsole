@@ -119,7 +119,7 @@ int request_tty(const char *tty)
 	    unsigned char buf[BUF_LEN];
 	    ssize_t e;
 
-	    if (!can_read(nd, -1))
+	    if (!can_read(nd, 2000))
 		break;
 
 	    len = read (nd, buf, BUF_LEN);

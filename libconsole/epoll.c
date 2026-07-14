@@ -78,6 +78,12 @@ void epoll_addread(int fd, void *fptr)
     epoll_addition(fd, fptr, EPOLLIN|EPOLLPRI|EPOLLRDHUP);
 }
 
+void epoll_addsysfs(int fd, void *fptr)
+{
+    /* ONLY wait for exceptions (EPOLLPRI|EPOLLERR), never for EPOLLIN! */
+    epoll_addition(fd, fptr, EPOLLPRI|EPOLLERR);
+}
+
 void epoll_addwrite(int fd, void *fptr)
 {
     epoll_addition(fd, fptr, EPOLLOUT|EPOLLONESHOT|EPOLLPRI|EPOLLERR);
