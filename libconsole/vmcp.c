@@ -102,8 +102,11 @@ static char* askvmcp(int fd, const char *question)
     do {
 	rc = read(fd, ret, buffersize);
 	if (rc < 0) {
-	    if (errno != EINTR)
+	    if (errno != EINTR) {
+		free(ret);
+		ret = NULL;
 		goto out;
+	    }
 	}
     } while (rc < 0);
 out:

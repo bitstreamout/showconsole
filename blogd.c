@@ -53,10 +53,12 @@ static const char *varrun = _PATH_VARRUN;
 static void _initialize(void) __attribute__((__constructor__));
 static void _initialize(void)
 {
-    const char *run;
+    char *run;
     run = realpath(varrun, NULL);
     if (run && *run)
 	varrun = run;
+    else if (run)
+	free(run);
 }
 
 /*
@@ -142,6 +144,7 @@ static void attribute((noinline)) dopidfile()
 			exe = proc2exe(pid);
 			if (exe) {
 			    errno = EACCES;
+			    free(exe);
 			    error("plymouth is active %ld", (long int)pid);
 			}
 		    }

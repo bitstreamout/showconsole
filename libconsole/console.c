@@ -1131,8 +1131,10 @@ err:
 #ifdef TIOCGDEV
     fd = open("/dev/console", O_RDONLY|O_NONBLOCK|O_NOCTTY|O_CLOEXEC);
     if (fd >= 0) {
-	if (ioctl (0, TIOCGDEV, &devnum) < 0)
+	if (ioctl (0, TIOCGDEV, &devnum) < 0) {
+	    close(fd);
 	    goto fallback;
+	}
 	close(fd);
 	tty = chardev((dev_t)devnum);
 	if (!tty)
@@ -2074,13 +2076,19 @@ static void ask_for_password(void)
 #endif
 	    if (fdc < 0)
 		fdc = request_tty(c->tty);
-	    if (fdc < 0)
+	    if (fdc < 0) {
+#if !defined(__s390__) && !defined(__s390x__)
+		if (fd_tty0 >= 0)
+		    close(fd_tty0);
+#endif
 		_exit(1);
+	    }
 
-	    dup2(fdc, 0);
-	    dup2(fdc, 1);
-	    if (fdc > 1)
+	    dup2(fdc, 0);	/* stdin */
+	    dup2(fdc, 1);	/* stdout */
+	    if (fdc > 1) {	/* Intentional: let 0 and 1 open */
 		close(fdc);
+	    }
 
 	    /*
 	     * Mandatory: Remove none blocking mode for reading
@@ -2146,6 +2154,10 @@ static void ask_for_password(void)
 #endif
 	    if (len < 0) {
 		warn("can not set password prompt");
+#if !defined(__s390__) && !defined(__s390x__)
+		if (fd_tty0 >= 0)
+		    close(fd_tty0);
+#endif
 		_exit(1);
 	    }
 	    /*
