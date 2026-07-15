@@ -1,0 +1,32 @@
+name: openSUSE Tumbleweed CI
+
+on:
+  push:
+    branches: [ "master" ]
+  pull_request:
+    branches: [ "master" ]
+  workflow_dispatch:
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    container:
+      image: registry.opensuse.org/opensuse/tumbleweed:latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Refresh repositories and install dependencies
+        run: |
+          zypper --non-interactive refresh
+          zypper --non-interactive install -y \
+            gcc make glibc-devel \
+            rpm-config-SUSE \
+            bash \
+            coreutils
+
+      - name: Run build or test scripts
+        run: |
+          echo "Running tasks inside openSUSE Tumbleweed..."
+          make
