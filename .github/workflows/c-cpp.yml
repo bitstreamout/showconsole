@@ -24,7 +24,8 @@ jobs:
             gcc make glibc-devel \
             rpm-config-SUSE \
             bash \
-            coreutils
+            coreutils \
+            findutils
 
       - name: Run build or test scripts
         run: |
