@@ -29,4 +29,8 @@ jobs:
       - name: Run build or test scripts
         run: |
           echo "Running tasks inside openSUSE Tumbleweed..."
+          set -e
           make
+          mkdir -p  $GITHUB_WORKSPACE/buildroot
+          make install DESTDIR=$GITHUB_WORKSPACE/buildroot
+          find $GITHUB_WORKSPACE/buildroot
